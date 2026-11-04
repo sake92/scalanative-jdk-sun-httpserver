@@ -9,7 +9,7 @@ Scala Native library before proposing incorporation into Scala Native.
 Implement one class at a time when dependencies permit. Each implementation
 step starts only when requested, includes its behavior tests, and ends with a
 passing test run and a short account of limitations. Repository setup is
-complete; the current implementation step is `Headers`.
+complete; `Headers` and `HttpPrincipal` are implemented.
 
 The initial compatibility target is the JDK 8-era public HTTP API. Use current
 published API documentation to identify subsequent changes, without silently
@@ -173,7 +173,8 @@ and disconnect tests that higher-level clients hide.
 - [x] Bootstrap builds and Native smoke test passes (1 test, 0 failures).
 - [x] Git repository initialized at `/home/sake/projects/sake92/scalanative-jdk-sun-httpserver`.
 - [x] Headers and shared JVM/Native contract tests.
-- [ ] Principal/authentication classes.
+- [x] HttpPrincipal and shared JVM/Native contract tests.
+- [ ] Authenticator and BasicAuthenticator classes.
 - [ ] Handler/exchange/context/filter API.
 - [ ] Framing and body streams.
 - [ ] Blocking server and socket integration tests.

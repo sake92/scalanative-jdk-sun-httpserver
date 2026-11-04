@@ -3,10 +3,10 @@
 An Apache-2.0-licensed implementation of `com.sun.net.httpserver` for Scala
 Native, developed incrementally with synchronous, blocking I/O.
 
-The first HTTP API class, `com.sun.net.httpserver.Headers`, is implemented with
-case-insensitive keys, mutable Java map views, and the JDK 8 convenience
-methods `add`, `set`, and `getFirst`. The [implementation plan](PLAN.md) tracks
-the remaining HTTP API and server work.
+The first HTTP API classes, `com.sun.net.httpserver.Headers` and
+`HttpPrincipal`, are implemented with case-insensitive mutable header maps and
+the JDK 8 principal contract. The [implementation plan](PLAN.md) tracks the
+remaining HTTP API and server work.
 
 Requires JDK 17 or newer, sbt, and the
 [Scala Native toolchain](https://scala-native.org/en/stable/user/setup.html).
@@ -23,8 +23,8 @@ sbt 'testOnly org.scalanative.testsuite.httpserver.NativeSocketSmokeTest'
 Tests use Scala Native's JUnit plugin and compile to a native executable.
 Use `testFull` to run every test; sbt 2's `test` runs only tests without a
 cached passing result, so it can report zero tests even after `clean`.
-The Native suite covers the header contract and the socket smoke test. The
-isolated `jvm-reference` build runs the same header contract scenarios against
+The Native suite covers the header and principal contracts plus the socket smoke
+test. The isolated `jvm-reference` build runs the same shared scenarios against
 the JDK implementation without loading this library's production classes.
 
 The JDK 8 specification documents null keys and values for `Headers`; the

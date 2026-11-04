@@ -1,0 +1,15 @@
+# Principal step
+
+| Step | Status | Scope | Verification | Report |
+| --- | --- | --- | --- | --- |
+| HttpPrincipal | PASS | Implement java.security.Principal contract and JDK 8 HttpPrincipal signatures, shared tests and Native JUnit wrappers, existing JVM reference registration, README/PLAN progress | Native sbt -batch +testFull and JVM sbt -batch +run, all 3 configured Scala lines, after last edit | REPORT-1.md |
+
+Read /home/sake/.agents/skills/pragmatic-architecture/SKILL.md, pragmatic-testing/SKILL.md and find-docs/SKILL.md for relevant API work. Use Context7 first; if not a version-matched API source, state mismatch and use Oracle JDK 8 published HttpPrincipal documentation. Do not inspect implementation source or tests from OpenJDK.
+Inspect/reuse existing shared scenario, assertion and JVM entrypoint structure before introducing anything. Capture behavior/expected result/test name checklist before implementation. Include realm and username differences, delimiter ambiguity in principal names if contract-relevant, null inputs, empty/non-ASCII values, equality against null/unrelated types and hash consistency. Keep assertions about documented behavior separate from reference observations. No need for test machinery for trivial getters beyond coherent public scenarios.
+Final immutable report begins with compact Control Block: outcome, commands/counts, terminal log paths, material limitations, exact source/test/build review pointers. No raw logs in mailbox. Mailbox only BLOCKED/DECISION_REQUIRED/FINAL, max three short lines. Named scope changes stop for parent decision; no gratuitous cross-cutting changes.
+
+## Repair 2: inherited public behavior
+
+Parent review found equals compares this instance's private fields against the other instance's overridable getters, allowing a subclass overriding an accessor to fail reflexivity. Preserve the published non-final API and constructor identity. Add shared regression scenarios against actual JDK for equality/reflexivity/symmetry with inherited equals and overridden accessors; use private immutable identity fields for comparison when reference confirms. Check documented toString == getName with overridden getName as well, using simplest delegation if compatible.
+Oracle JDK 8 hashCode documentation does describe a formula (with malformed parentheses): https://docs.oracle.com/javase/8/docs/jre/api/net/httpserver/spec/com/sun/net/httpserver/HttpPrincipal.html . Correct JVM-OBSERVATION's inaccurate statement that no formula is specified; distinguish textual typo/interpretation from runtime confirmation. Test documented ordinary hash values, do not invent a new hash algorithm. Consolidate any conflicting subclass hash behavior as observed JDK limitations rather than silently creating different semantics. No OpenJDK implementation/test source.
+Read /home/sake/.agents/skills/lunacy/worker/ENGINEERING.md. Implement -> verify -> self-review -> terminal full three-line Native/JVM matrices after final edits, retained log paths, immutable REPORT-2.md. REPORT-1.md stays unchanged. No unrelated changes or commits.

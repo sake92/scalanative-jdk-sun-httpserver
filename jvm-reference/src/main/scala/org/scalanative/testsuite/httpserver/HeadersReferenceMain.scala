@@ -9,6 +9,16 @@ object HeadersReferenceMain {
     HeadersContractScenarios.mapOperationsUseHeaderKeySemantics()
     HeadersContractScenarios.mapViewsRemainLive()
     HeadersContractScenarios.equalityAndHashCodeFollowMapContract()
-    println("Passed: Total 7, Failed 0")
+    HttpPrincipalContractScenarios.identityFieldsAreRetained()
+    HttpPrincipalContractScenarios.nameAndToStringUseRealmThenUsername()
+    HttpPrincipalContractScenarios.emptyAndNonAsciiValuesRoundTrip()
+    HttpPrincipalContractScenarios.equalityUsesUsernameAndRealmRatherThanRenderedName()
+    HttpPrincipalContractScenarios.equalityRejectsNullAndUnrelatedValues()
+    HttpPrincipalContractScenarios.equalPrincipalsHaveEqualHashes()
+    HttpPrincipalContractScenarios.hashCodeFollowsDocumentedUsernameRealmFormula()
+    HttpPrincipalContractScenarios.inheritedEqualityUsesConstructorIdentity()
+    HttpPrincipalContractScenarios.toStringDelegatesToOverriddenGetName()
+    HttpPrincipalContractScenarios.nullArgumentsAreRejected()
+    println("Passed: Total 17, Failed 0")
   }
 }
