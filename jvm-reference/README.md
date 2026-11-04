@@ -13,6 +13,14 @@ sbt -batch +testFull
 sbt -batch 'testOnly org.scalanative.testsuite.httpserver.HeadersTest'
 ```
 
+The 32 shared tests cover headers, principals, filter control flow, and Basic
+authentication. The small `HeaderExchange` fixture supplies request/response
+headers to the production authenticator; other exchange behavior remains deferred.
+
 The shared tests use the Scala Native pinned JUnit 4.13.2 and
 `com.github.sbt` junit-interface 0.13.3 dependencies. Native-only null and
 socket smoke tests are intentionally excluded from this JVM reference build.
+Baseline differences (filter null rejection, empty realm, exact challenge,
+case-insensitive schemes, and malformed credentials) are also
+Native-only. Shared challenge checks allow the exact JDK 8 form and the newer
+UTF-8 advertisement, without loading this library's production classes.

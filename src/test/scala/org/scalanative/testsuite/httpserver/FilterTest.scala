@@ -17,7 +17,7 @@ class FilterTest {
       override def handle(exchange: HttpExchange): Unit = events.add("handler")
     }
 
-    new Filter.Chain(filters, handler).doFilter(null)
+    new Filter.Chain(filters, handler).doFilter(new HeaderExchange())
     assertListEquals(
       Array("first-before", "second-before", "handler", "second-after", "first-after"),
       events
@@ -25,6 +25,7 @@ class FilterTest {
   }
 
   @Test def filterAndHandlerExceptionsPropagate(): Unit = {
+    val exchange = new HeaderExchange()
     val filterFailure = new IOException("filter")
     val filter = new Filter {
       override def doFilter(exchange: HttpExchange, chain: Filter.Chain): Unit =
@@ -34,13 +35,14 @@ class FilterTest {
     }
     val filters = new ArrayList[Filter]()
     filters.add(filter)
-    assertSame(filterFailure, expectIOException(new Filter.Chain(filters, noOpHandler).doFilter(null)))
+    assertSame(filterFailure, expectIOException(new Filter.Chain(filters, noOpHandler).doFilter(exchange)))
 
     val handlerFailure = new IOException("handler")
     val handler = new HttpHandler {
       override def handle(exchange: HttpExchange): Unit = throw handlerFailure
     }
-    assertSame(handlerFailure, expectIOException(new Filter.Chain(new ArrayList[Filter](), handler).doFilter(null)))
+    val handlerChain = new Filter.Chain(new ArrayList[Filter](), handler)
+    assertSame(handlerFailure, expectIOException(handlerChain.doFilter(exchange)))
   }
 
   @Test def emptyFilterChainInvokesHandler(): Unit = {
@@ -49,7 +51,7 @@ class FilterTest {
       override def handle(exchange: HttpExchange): Unit = calls.add("called")
     }
 
-    new Filter.Chain(new ArrayList[Filter](), handler).doFilter(null)
+    new Filter.Chain(new ArrayList[Filter](), handler).doFilter(new HeaderExchange())
     assertListEquals(Array("called"), calls)
   }
 
@@ -69,7 +71,7 @@ class FilterTest {
     filters.add(shortCircuit)
     filters.add(downstream)
 
-    new Filter.Chain(filters, handler).doFilter(null)
+    new Filter.Chain(filters, handler).doFilter(new HeaderExchange())
     assertListEquals(Array("short-circuit"), events)
   }
 
@@ -83,7 +85,7 @@ class FilterTest {
     val filters = new ArrayList[Filter]()
     filters.add(filter)
 
-    val propagated = expectIOException(new Filter.Chain(filters, handler).doFilter(null))
+    val propagated = expectIOException(new Filter.Chain(filters, handler).doFilter(new HeaderExchange()))
     assertSame(failure, propagated)
     assertListEquals(Array("before-handler-before"), events)
   }

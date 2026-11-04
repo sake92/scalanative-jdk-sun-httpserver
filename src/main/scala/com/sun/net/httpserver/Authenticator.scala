@@ -6,13 +6,13 @@ package com.sun.net.httpserver
  * The result classes are deliberately concrete values so an authenticator can
  * report success, a completed failure, or a response that should be retried.
  */
-abstract class Authenticator protected () {
+abstract class Authenticator {
   def authenticate(exchange: HttpExchange): Authenticator.Result
 }
 
 object Authenticator {
   /** Base class for values returned by [[Authenticator.authenticate]]. */
-  abstract class Result protected ()
+  abstract class Result
 
   /** Indicates that authentication succeeded for `principal`. */
   class Success(principal: HttpPrincipal) extends Result {
