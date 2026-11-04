@@ -19,23 +19,26 @@ default and Scala 2.12.21/2.13.18 cross-builds.
 ```sh
 sbt -batch testFull
 sbt -batch +testFull
-sbt 'testOnly org.scalanative.testsuite.httpserver.NativeSocketSmokeTest'
-(cd jvm-reference && sbt -batch +run)
+sbt 'testOnly org.scalanative.testsuite.httpserver.HeadersTest'
+(cd jvm-reference && sbt -batch testFull)
+(cd jvm-reference && sbt -batch +testFull)
 ```
 
 Tests use Scala Native's JUnit plugin and compile to a native executable.
 Use `testFull` to run every test; sbt 2's `test` runs only tests without a
 cached passing result, so it can report zero tests even after `clean`.
-The Native suite covers the header and principal contracts, five
-`Filter.Chain` control-flow scenarios, and the socket smoke test. Exchange,
-context, authentication, and server integration checks await concrete
-production implementations. The isolated `jvm-reference` build runs the same
-shared chain scenarios against the JDK implementation without loading this
-library's production classes.
+The Native suite contains 24 JUnit tests: seven header, ten principal, five
+`Filter.Chain` control-flow, one Native-only null baseline, and one socket
+smoke test. The isolated `jvm-reference` build runs the same 22 direct JUnit
+contract tests for headers, principals, and filters against the real JDK
+implementation without loading this library's production classes. The shared
+JUnit sources are registered in the JVM project's `Test` configuration and
+use Scala Native's pinned JUnit 4.13.2 and junit-interface 0.13.3 versions.
+There is no separate scenarios layer or hand-written test runner.
 
 The JDK 8 specification documents null keys and values for `Headers`; the
 Native implementation follows that baseline. Current JDK 21 reference runs
 reject some null map operations, so that observation is kept separate from the
-shared contract scenarios.
+shared contract tests.
 
 HTTPS and Sharaf integration are outside the current scope.

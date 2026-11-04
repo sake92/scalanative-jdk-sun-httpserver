@@ -5,11 +5,14 @@ lazy val root = project
   .in(file("."))
   .settings(
     name := "scalanative-httpserver-jvm-reference",
-    Compile / unmanagedSources := Seq(
-      baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HeadersContractScenarios.scala",
-      baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HttpPrincipalContractScenarios.scala",
-      baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/ExchangeContractScenarios.scala",
-      baseDirectory.value / "src/main/scala/org/scalanative/testsuite/httpserver/HeadersReferenceMain.scala"
+    Test / unmanagedSources := Seq(
+      baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HeadersTest.scala",
+      baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HttpPrincipalTest.scala",
+      baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/FilterTest.scala"
+    ),
+    libraryDependencies ++= Seq(
+      "com.github.sbt" % "junit-interface" % "0.13.3" % Test,
+      "junit" % "junit" % "4.13.2" % Test
     ),
     Compile / scalacOptions += "-deprecation",
     Compile / scalacOptions += "-feature",

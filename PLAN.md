@@ -57,6 +57,11 @@ Primary contracts:
 - Public implementation: `src/main/scala/com/sun/net/httpserver/`.
 - Private engine: an internal package with package-scoped implementation types.
 - JUnit tests: `src/test/scala/org/scalanative/testsuite/httpserver/`.
+- Shared contract tests are direct JUnit classes (`HeadersTest`,
+  `HttpPrincipalTest`, and `FilterTest`) with test bodies and
+  `org.junit.Assert` assertions. The isolated JVM reference project registers
+  those same sources in its `Test` configuration against the JDK classes; it
+  does not load this library's production classes.
 - Keep production dependencies empty initially; use `java.net.ServerSocket`,
   `Socket`, Java streams, collections, and concurrency primitives already in SN.
 - Prefer Java-compatible API declarations and conservative Scala syntax to ease
@@ -162,8 +167,12 @@ standalone library. Upstream acceptance is not assumed.
 
 For each class, add a compact behavior/expected-result/test-name checklist before
 implementation. Tests should exercise public contracts and meaningful protocol
-boundaries, not private implementation structure. Reuse Scala Native's JUnit
-assertion style without copying upstream tests.
+boundaries, not private implementation structure. Reuse Scala Native's direct
+JUnit style (`org.junit.Test` and `org.junit.Assert`) without copying upstream
+tests. Do not add a separate scenarios layer, forwarding-only wrappers, or a
+hand-written runner and manual pass count. Keep minimal test doubles only where
+they exercise a real production branch; defer fixture-only coverage until the
+corresponding production implementation exists.
 
 Use OS-assigned loopback ports, finite socket timeouts and bounded thread joins,
 and cleanup in `finally`. Avoid sleep-based synchronization and shared mutable
@@ -186,3 +195,8 @@ and disconnect tests that higher-level clients hide.
 - [ ] Framing and body streams.
 - [ ] Blocking server and socket integration tests.
 - [ ] Compatibility audit and upstream discussion.
+
+The shared header, principal, and filter JUnit contracts currently run as 22
+tests on the JVM reference project and, together with the two Native-only
+baseline/socket tests, as 24 tests on Native. Run `testFull` (and `+testFull`
+for all configured Scala versions) when validating the complete matrix.
