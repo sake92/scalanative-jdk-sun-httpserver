@@ -11,3 +11,5 @@ project/project/
 .metals/
 .idea/
 *.iml
+
+.basamake/
