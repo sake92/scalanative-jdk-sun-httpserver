@@ -12,9 +12,9 @@ passing test run and a short account of limitations. Work directly and maintain
 current decisions, behavior checklists, and validation results in this file.
 Repository setup is
 complete; headers, principals, authentication, the initial exchange/context/
-filter API, and request-head parsing/framing validation are implemented.
-Fixed-length request input is next; other body streams and the concrete server
-remain deferred.
+filter API, request-head parsing/framing validation, and fixed-length request
+input are implemented. Chunked request input is next; response streams and the
+concrete server remain deferred.
 
 The initial compatibility target is the JDK 8-era public HTTP API. Use current
 published API documentation to identify subsequent changes, without silently
@@ -165,6 +165,33 @@ newer `Request` and `AutoCloseable` additions are deferred.
 
 ### 4. Blocking HTTP framing and streams
 
+Completed slice: fixed-length request input. Behavior checklist (written before
+implementation), all in `FixedLengthInputStreamTest`:
+
+| Behavior | Expected result | Test |
+| --- | --- | --- |
+| Bounded reads | Single/bulk reads stop at declared length, preserve unsigned byte values and caller buffer boundaries, and leave the next request untouched | `readsExactlyTheDeclaredBody` |
+| Short source reads | Account for actual bytes read across short refills without whole-body buffering | `handlesFragmentedInput` |
+| Empty body and zero reads | Empty bodies are complete immediately; zero-length reads return zero without touching source | `emptyBodiesAndZeroLengthReadsDoNotConsumeSource` |
+| Invalid arguments | Reject null source, negative length, null buffers and invalid/overflowing ranges without consuming bytes | `rejectsInvalidArgumentsWithoutConsumingInput` |
+| Long lengths | Keep remaining count in Long without narrowing or allocating the whole body | `supportsLongBodyLengths` |
+| Skip | Skip actual bytes within the body, including short refills; nonpositive skips do nothing; huge skips preserve next message | `skipIsBoundedAndHandlesShortReads` |
+| Availability | Clamp source estimate to remaining body; do not probe source after completion | `availabilityIsBoundedByRemainingBody` |
+| Truncation | Single/bulk reads and skip throw EOFException; completion remains false; retry cannot resume after a framing failure | `truncationIsTerminal` |
+| Source failure | Preserve the source IOException and prevent later reads from reusing a damaged stream | `sourceFailuresAreTerminal` |
+| Close | Idempotent, non-draining close leaves shared source open and rejects subsequent stream operations; completion reflects actual consumption | `closePreservesConnectionOwnership` |
+| Mark/reset | Do not allow rewinding shared connection bytes | `doesNotSupportMarkOrReset` |
+
+The wrapper owns only body-read state. It exposes a read-only `isComplete` for
+later connection-reuse decisions. `close` does not drain unread data or close
+the source; the later connection/exchange layer must drain under its own limits
+or close the connection when incomplete. Reads are blocking and use the source's
+timeout/cancellation policy. No concurrent reads are supported. Skip must count
+actual read results: the inspected Native base InputStream skip implementation
+can stop early on fragmented input, so this wrapper implements its own bounded
+read-and-discard loop. No general stream hierarchy or server integration is
+introduced in this slice.
+
 Completed slice: request-head parsing and framing validation. Behavior checklist
 (written before implementation):
 
@@ -187,7 +214,7 @@ strict policy under RFC 9112 section 6.3. Only `chunked` transfer coding is
 supported; compression transfer codings remain unsupported. The parser reads
 from a caller-owned stream without read-ahead; a connection may supply one
 BufferedInputStream shared with subsequent body readers. The parsed fields are
-immutable and no public API is added. Body streams, persistence decisions,
+immutable and no public API is added. Remaining body streams, persistence decisions,
 Expect processing and emitting `100 Continue` wait for their later slices.
 Host and absolute/CONNECT authorities currently use Java URI server-host syntax;
 unusual registered names such as underscore-containing hosts and IPvFuture
@@ -203,7 +230,9 @@ and framing validation; fixed-length request input; chunked request input; then
 response streams. The first slice is complete and stops at a parsed request
 head and framing decision, with byte-level tests for fragmented input, limits,
 ambiguous framing, and preservation of bytes belonging to the body or next
-request. The next separately requested slice is fixed-length request input.
+request. Fixed-length request input is also complete. The next separately
+requested slice is chunked request input, including chunk extensions, trailer
+validation and retention of following-request bytes.
 
 Support Content-Length and chunked requests, chunk extensions/trailers as
 appropriate, and retained bytes between exchanges. Bound line/header sizes and
@@ -328,14 +357,16 @@ and disconnect tests that higher-level clients hide.
 - [x] BasicAuthenticator and shared JVM/Native authentication contract tests.
 - [x] Handler/exchange/context/filter API and permanent abstract `HttpServer` instance contract.
 - [x] Request-line/header parsing and request-framing validation.
-- [ ] Fixed-length request input (next), chunked request input, and response streams.
+- [x] Fixed-length request input.
+- [ ] Chunked request input (next) and response streams.
 - [ ] Blocking server and socket integration tests.
 - [ ] Compatibility audit and upstream discussion.
 
 The shared header, principal, filter, and authentication JUnit contracts run as 32
 tests on the JVM reference project and, together with the seven Native-only
-baseline/socket tests and 12 request-head parser tests, as 51 tests on Native.
-Internal parser tests use the engine package to access package-scoped code;
+baseline/socket tests, 12 request-head parser tests, and 11 fixed-length input
+tests, as 62 tests on Native.
+Internal engine tests use the engine package to access package-scoped code;
 they stay in the Native test tree and are not shared with the JDK reference.
 Run `testFull` (and `+testFull`
 for all configured Scala versions) when validating the complete matrix.
@@ -372,16 +403,21 @@ Latest implementation validation (2026-11-04, Linux, Temurin JDK 21.0.10):
 
 | Target | Command | Result on Scala 2.12.21, 2.13.18, and 3.9.0 |
 | --- | --- | --- |
-| Native request-head slice | `sbt -batch +testFull` | 51 tests passed per version, zero failures |
+| Native fixed-length input slice | `sbt -batch +testFull` | 62 tests passed per version, zero failures |
+| Native request-head slice (previous) | `sbt -batch +testFull` | 51 tests passed per version, zero failures |
 | JVM reference (previous API slice) | `sbt -batch +testFull` in `jvm-reference/` | 32 tests passed per version, zero failures |
 | Refined shared tests (previous API slice) | Cross-version `+testOnly` for FilterTest and BasicAuthenticatorTest in `jvm-reference/` | 5 filter and 10 authentication tests passed per version after subsequent test refinements |
 
-The request-head slice adds 12 Native-only tests. The Scala 3.9.0 full suite
-also passed separately with `sbt -batch testFull`. JVM reference tests were not
-rerun for this slice: no shared API implementations or shared tests changed, and
-the JDK has no corresponding exposed internal parser contract. No additional
-dependencies or adapted third-party sources were added. `git diff --check`
-passed. Existing GNU-stack linker warnings remained non-failing.
+The fixed-length input slice adds 11 Native-only tests, including preservation
+of the next request, short reads/skips, terminal truncation and source failures,
+and non-draining close without closing the caller's source. All 62 tests passed
+on each configured Scala version with `sbt -batch +testFull`.
+The previous request-head slice added 12 Native-only tests; its Scala 3.9.0 full
+suite also passed separately with `sbt -batch testFull`. JVM reference tests
+were not rerun for these internal-engine slices: no shared API implementations
+or shared tests changed, and the JDK exposes no corresponding internal-engine
+contract. No additional dependencies or adapted third-party sources were added.
+`git diff --check` passed. Existing GNU-stack linker warnings remained non-failing.
 
 Regression evidence: before the filter fix, the Native test failed because null
 did not throw. Before the padding guard, the Native malformed-credentials test
