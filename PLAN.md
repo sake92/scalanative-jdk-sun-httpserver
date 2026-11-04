@@ -11,8 +11,10 @@ step starts only when requested, includes its behavior tests, and ends with a
 passing test run and a short account of limitations. Work directly and maintain
 current decisions, behavior checklists, and validation results in this file.
 Repository setup is
-complete; headers, principals, authentication, and the initial exchange/context/
-filter API are implemented. HTTP framing and the concrete server remain next.
+complete; headers, principals, authentication, the initial exchange/context/
+filter API, and request-head parsing/framing validation are implemented.
+Fixed-length request input is next; other body streams and the concrete server
+remain deferred.
 
 The initial compatibility target is the JDK 8-era public HTTP API. Use current
 published API documentation to identify subsequent changes, without silently
@@ -163,14 +165,45 @@ newer `Request` and `AutoCloseable` additions are deferred.
 
 ### 4. Blocking HTTP framing and streams
 
+Completed slice: request-head parsing and framing validation. Behavior checklist
+(written before implementation):
+
+| Behavior | Expected result | Test in `RequestHeadParserTest` |
+| --- | --- | --- |
+| Request metadata and fields | Preserve method/target/version and ordered repeated fields; trim only field OWS, retain Latin-1 bytes | `parsesMetadataAndRepeatedFields` |
+| Target forms | Accept origin, absolute, CONNECT authority and OPTIONS asterisk forms without decoding paths | `acceptsRequestTargetForms` |
+| Request syntax | Reject malformed tokens, targets, spacing, versions and line endings | `rejectsMalformedRequestLines` |
+| Header syntax and Host | Reject folding, whitespace before colon, controls, missing/duplicate/invalid HTTP/1.1 Host | `rejectsMalformedHeadersAndHost` |
+| Length framing | Absent length means no body; decimal length supports zero and Long.MaxValue | `selectsFixedLengthOrNoBody` |
+| Ambiguous length | Reject repeated/comma lengths, signs, non-digits and overflow | `rejectsInvalidOrRepeatedLengths` |
+| Transfer framing | Accept only a single case-insensitive chunked coding on HTTP/1.1; reject CL+TE and unsupported codings | `validatesTransferEncoding` |
+| Limits | Enforce inclusive request-line/header-line octet, header-section octet and field-count limits | `enforcesLimitsAtBoundaries` |
+| EOF and I/O errors | Clean EOF is None; truncated heads fail; source IOException propagates unchanged | `distinguishesCleanEofFromTruncation`, `propagatesInputFailure` |
+| Fragmentation and retained bytes | Parsing works across short refills and leaves body/next request bytes on the same stream | `preservesBodiesAndFollowingRequests`, `handlesEveryFragmentBoundary` |
+
+This slice uses strict CRLF and single-SP request-line syntax. Duplicate
+Content-Length fields (including identical values) are rejected, an allowed
+strict policy under RFC 9112 section 6.3. Only `chunked` transfer coding is
+supported; compression transfer codings remain unsupported. The parser reads
+from a caller-owned stream without read-ahead; a connection may supply one
+BufferedInputStream shared with subsequent body readers. The parsed fields are
+immutable and no public API is added. Body streams, persistence decisions,
+Expect processing and emitting `100 Continue` wait for their later slices.
+Host and absolute/CONNECT authorities currently use Java URI server-host syntax;
+unusual registered names such as underscore-containing hosts and IPvFuture
+literals are not supported. Parse errors carry the prospective HTTP response
+code (400, 414, 431, 501 or 505); the later connection processor must close the
+connection on failure. No error responses are emitted by this slice.
+
 Implement internal request-line/header parsing and body framing before server
 integration. Do not tie parsing to application routing or buffer whole bodies.
 
 Implement this phase in separately requested slices: request-line/header parsing
 and framing validation; fixed-length request input; chunked request input; then
-response streams. The next slice stops at a parsed request head and framing
-decision, with byte-level tests for fragmented input, limits, ambiguous framing,
-and preservation of bytes belonging to the body or next request.
+response streams. The first slice is complete and stops at a parsed request
+head and framing decision, with byte-level tests for fragmented input, limits,
+ambiguous framing, and preservation of bytes belonging to the body or next
+request. The next separately requested slice is fixed-length request input.
 
 Support Content-Length and chunked requests, chunk extensions/trailers as
 appropriate, and retained bytes between exchanges. Bound line/header sizes and
@@ -294,13 +327,17 @@ and disconnect tests that higher-level clients hide.
 - [x] Authenticator and its result hierarchy.
 - [x] BasicAuthenticator and shared JVM/Native authentication contract tests.
 - [x] Handler/exchange/context/filter API and permanent abstract `HttpServer` instance contract.
-- [ ] Framing and body streams.
+- [x] Request-line/header parsing and request-framing validation.
+- [ ] Fixed-length request input (next), chunked request input, and response streams.
 - [ ] Blocking server and socket integration tests.
 - [ ] Compatibility audit and upstream discussion.
 
 The shared header, principal, filter, and authentication JUnit contracts run as 32
 tests on the JVM reference project and, together with the seven Native-only
-baseline/socket tests, as 39 tests on Native. Run `testFull` (and `+testFull`
+baseline/socket tests and 12 request-head parser tests, as 51 tests on Native.
+Internal parser tests use the engine package to access package-scoped code;
+they stay in the Native test tree and are not shared with the JDK reference.
+Run `testFull` (and `+testFull`
 for all configured Scala versions) when validating the complete matrix.
 
 
@@ -335,9 +372,16 @@ Latest implementation validation (2026-11-04, Linux, Temurin JDK 21.0.10):
 
 | Target | Command | Result on Scala 2.12.21, 2.13.18, and 3.9.0 |
 | --- | --- | --- |
-| Native | `sbt -batch ';+clean;+testFull'` | 39 tests passed per version, zero failures |
-| JVM reference | `sbt -batch +testFull` in `jvm-reference/` | 32 tests passed per version, zero failures |
-| Refined shared tests | Cross-version `+testOnly` for FilterTest and BasicAuthenticatorTest in `jvm-reference/` | 5 filter and 10 authentication tests passed per version after subsequent test refinements |
+| Native request-head slice | `sbt -batch +testFull` | 51 tests passed per version, zero failures |
+| JVM reference (previous API slice) | `sbt -batch +testFull` in `jvm-reference/` | 32 tests passed per version, zero failures |
+| Refined shared tests (previous API slice) | Cross-version `+testOnly` for FilterTest and BasicAuthenticatorTest in `jvm-reference/` | 5 filter and 10 authentication tests passed per version after subsequent test refinements |
+
+The request-head slice adds 12 Native-only tests. The Scala 3.9.0 full suite
+also passed separately with `sbt -batch testFull`. JVM reference tests were not
+rerun for this slice: no shared API implementations or shared tests changed, and
+the JDK has no corresponding exposed internal parser contract. No additional
+dependencies or adapted third-party sources were added. `git diff --check`
+passed. Existing GNU-stack linker warnings remained non-failing.
 
 Regression evidence: before the filter fix, the Native test failed because null
 did not throw. Before the padding guard, the Native malformed-credentials test

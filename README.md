@@ -9,7 +9,9 @@ handler/exchange/context/filter contracts, are implemented incrementally.
 `HttpServer` currently exposes its permanent abstract instance contract so
 contexts can retain their owning
 server; provider factories and socket behavior remain deferred to the server
-phase. The [implementation plan](PLAN.md) tracks the remaining HTTP API and
+phase. Internal request-head parsing and body-framing validation are implemented;
+body streams and socket serving remain deferred.
+The [implementation plan](PLAN.md) tracks the remaining HTTP API and
 server work.
 
 Requires JDK 17 or newer, sbt, and the
@@ -28,9 +30,10 @@ sbt 'testOnly org.scalanative.testsuite.httpserver.HeadersTest'
 Tests use Scala Native's JUnit plugin and compile to a native executable.
 Use `testFull` to run every test; sbt 2's `test` runs only tests without a
 cached passing result, so it can report zero tests even after `clean`.
-The Native suite contains 39 JUnit tests: 32 shared header, principal, filter,
-and authentication contracts, six Native-only baseline checks, and one socket
-smoke test. The isolated `jvm-reference` build runs the same 32 direct JUnit
+The Native suite contains 51 JUnit tests: 32 shared header, principal, filter,
+and authentication contracts, six Native-only baseline checks, one socket
+smoke test, and 12 internal request-head parser tests.
+The isolated `jvm-reference` build runs the same 32 direct JUnit
 contract tests against the real JDK implementation without loading this library's
 production classes. The shared JUnit sources are registered in the JVM project's
 `Test` configuration and
