@@ -105,6 +105,12 @@ extension points. Test filter order, wrapped streams, context/exchange
 attributes, authenticator integration, and handler exceptions. Keep test-only
 exchange fixtures small; use real exchanges once the server is available.
 
+The API step also owns the complete JDK 8 `Authenticator` result hierarchy and
+the permanent abstract instance contract of `HttpServer`, because
+`HttpContext` exposes both types. `HttpServer` provider factories and concrete
+socket behavior remain deferred to section 5; no throwing public placeholders
+are used.
+
 ### 4. Blocking HTTP framing and streams
 
 Implement internal request-line/header parsing and body framing before server
@@ -174,8 +180,9 @@ and disconnect tests that higher-level clients hide.
 - [x] Git repository initialized at `/home/sake/projects/sake92/scalanative-jdk-sun-httpserver`.
 - [x] Headers and shared JVM/Native contract tests.
 - [x] HttpPrincipal and shared JVM/Native contract tests.
-- [ ] Authenticator and BasicAuthenticator classes.
-- [ ] Handler/exchange/context/filter API.
+- [x] Authenticator and its result hierarchy.
+- [ ] BasicAuthenticator.
+- [x] Handler/exchange/context/filter API and permanent abstract `HttpServer` instance contract.
 - [ ] Framing and body streams.
 - [ ] Blocking server and socket integration tests.
 - [ ] Compatibility audit and upstream discussion.

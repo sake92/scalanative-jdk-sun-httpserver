@@ -19,6 +19,11 @@ object HeadersReferenceMain {
     HttpPrincipalContractScenarios.inheritedEqualityUsesConstructorIdentity()
     HttpPrincipalContractScenarios.toStringDelegatesToOverriddenGetName()
     HttpPrincipalContractScenarios.nullArgumentsAreRejected()
-    println("Passed: Total 17, Failed 0")
+    ExchangeContractScenarios.filtersRunInOrderAroundHandler()
+    ExchangeContractScenarios.filterAndHandlerExceptionsPropagate()
+    ExchangeContractScenarios.emptyFilterChainInvokesHandler()
+    ExchangeContractScenarios.filterMayShortCircuitWithoutCallingDownstream()
+    ExchangeContractScenarios.nonEmptyChainPropagatesHandlerIOExceptionUnchanged()
+    println("Passed: Total 22, Failed 0")
   }
 }

@@ -8,6 +8,7 @@ lazy val root = project
     Compile / unmanagedSources := Seq(
       baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HeadersContractScenarios.scala",
       baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HttpPrincipalContractScenarios.scala",
+      baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/ExchangeContractScenarios.scala",
       baseDirectory.value / "src/main/scala/org/scalanative/testsuite/httpserver/HeadersReferenceMain.scala"
     ),
     Compile / scalacOptions += "-deprecation",

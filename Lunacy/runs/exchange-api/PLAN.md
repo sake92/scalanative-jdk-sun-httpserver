@@ -1,0 +1,12 @@
+# Exchange API
+
+Authority: repository PLAN.md section 3; user requests continuing that section and lunacy where possible.
+Scope: baseline HttpHandler, HttpExchange, HttpContext, Filter and Filter.Chain declarations and behavior tests. Preserve Java signatures and extension points; no temporary public stubs. Resolve required authentication/server type dependencies before implementation. Do not implement framing or socket engine.
+One coherent step: inspect existing surfaces and published JDK 8/current contracts, implement API and required behavior with shared JVM/Native tests, self-review and verify Scala 2.12.21/2.13.18/3.9.0.
+Gate: full Native and JVM shared-contract matrix, targeted parent API/behavior review. No adversary or scout initially.
+
+## Dependency decision
+Include complete Authenticator abstract contract and its real Success/Failure/Retry value implementations as the necessary section 2 dependency. Include HttpServer's permanent abstract instance API as the necessary HttpContext return type; defer its companion/static create factories and all concrete socket behavior to section 5. An actual abstract extension contract with implemented subclasses is not a temporary stub; do not add throwing placeholder methods. BasicAuthenticator remains a separately requested class. Update root PLAN.md/README to state this boundary clearly. Verify getResponseCode against the actual JDK 8 API (do not assume it is a later addition).
+
+## User correction: remove tests with no production value
+User explicitly rejected fixture-behavior tests and requested removing them when they add no value. Remove fixture-only exchange/context/server tests, handler-only anonymous implementation assertions, stream/attribute tests that only prove fixture storage, and trivial authentication value getter tests per pragmatic-testing. Keep the five real Filter.Chain control-flow scenarios; eliminate unused fixture classes/helpers/imports. Pass an opaque null exchange through chain where exchange behavior is irrelevant rather than building fake server state. Update Native wrappers/JVM registration/counts, checklist and README accurately; exchange/context/auth integration is deferred until production implementations exist. Production API remains unchanged. Verify final full Native and JVM suites across all configured Scala versions once; report immutable REPORT-3.md. Existing reports are historical, never edit them.
