@@ -8,8 +8,8 @@ Scala Native library before proposing incorporation into Scala Native.
 
 Implement one class at a time when dependencies permit. Each implementation
 step starts only when requested, includes its behavior tests, and ends with a
-passing test run and a short account of limitations. The current step is only
-repository setup and this plan; no HTTP classes are implemented.
+passing test run and a short account of limitations. Repository setup is
+complete; the current implementation step is `Headers`.
 
 The initial compatibility target is the JDK 8-era public HTTP API. Use current
 published API documentation to identify subsequent changes, without silently
@@ -51,7 +51,8 @@ Primary contracts:
 
 ## Build and source layout
 
-- Pin sbt 2.0.12, Scala 3.9.0, and Scala Native 0.5.12.
+- Pin sbt 2.0.12 and Scala Native 0.5.12. Build and test on Scala 2.12.21,
+  2.13.18, and 3.9.0, with Scala 3.9.0 as the default.
 - Enable `ScalaNativePlugin` and `ScalaNativeJUnitPlugin`, with multithreading.
 - Public implementation: `src/main/scala/com/sun/net/httpserver/`.
 - Private engine: an internal package with package-scoped implementation types.
@@ -59,15 +60,15 @@ Primary contracts:
 - Keep production dependencies empty initially; use `java.net.ServerSocket`,
   `Socket`, Java streams, collections, and concurrency primitives already in SN.
 - Prefer Java-compatible API declarations and conservative Scala syntax to ease
-  a later port into Scala Native's cross-Scala source tree. Verify Scala 2.13
-  compilation before claiming upstream readiness.
+  a later port into Scala Native's cross-Scala source tree. Verify all
+  configured Scala 2.12, 2.13, and 3 lines before claiming upstream readiness.
 - Add a separate JVM reference-test project with the first HTTP contract tests.
   Reuse those tests against the real JDK classes, without loading this library's
   classes on the JVM or copying JDK tests. Keep Native-only engine tests separate.
 
 ## Incremental implementation
 
-### 0. Repository bootstrap (current step)
+### 0. Repository bootstrap (completed)
 
 Initialize Git, add the license, pinned sbt build, ignore rules, README, and
 this plan. Run one Native JUnit smoke test of binding and closing a loopback
@@ -171,7 +172,7 @@ and disconnect tests that higher-level clients hide.
 
 - [x] Bootstrap builds and Native smoke test passes (1 test, 0 failures).
 - [x] Git repository initialized at `/home/sake/projects/sake92/scalanative-jdk-sun-httpserver`.
-- [ ] Headers and shared JVM/Native contract tests.
+- [x] Headers and shared JVM/Native contract tests.
 - [ ] Principal/authentication classes.
 - [ ] Handler/exchange/context/filter API.
 - [ ] Framing and body streams.

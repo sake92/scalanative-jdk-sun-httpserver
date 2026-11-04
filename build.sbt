@@ -1,6 +1,7 @@
 ThisBuild / organization := "ba.sake"
 ThisBuild / version := "0.1.0-SNAPSHOT"
 ThisBuild / scalaVersion := "3.9.0"
+ThisBuild / crossScalaVersions := Seq("2.12.21", "2.13.18", "3.9.0")
 
 lazy val root = project
   .in(file("."))
