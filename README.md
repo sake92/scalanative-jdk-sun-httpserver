@@ -23,7 +23,9 @@ executor and must shut it down.
 `stop(delay)` allows active handlers a bounded grace period, then closes sockets
 and stops the accept thread. Arbitrary handlers must cooperate with interruption
 or closed sockets. Provider discovery remains deferred.
-The [implementation plan](PLAN.md) tracks remaining compatibility and server work.
+The [compatibility inventory](COMPATIBILITY.md) lists the implemented API,
+unsupported features and validation limits. The [implementation plan](PLAN.md)
+tracks remaining work.
 
 Requires JDK 17 or newer, sbt, and the
 [Scala Native toolchain](https://scala-native.org/en/stable/user/setup.html).
@@ -41,12 +43,12 @@ sbt 'testOnly org.scalanative.testsuite.httpserver.HeadersTest'
 Tests use Scala Native's JUnit plugin and compile to a native executable.
 Use `testFull` to run every test; sbt 2's `test` runs only tests without a
 cached passing result, so it can report zero tests even after `clean`.
-The Native suite contains 127 JUnit tests: 32 shared header, principal, filter,
-and authentication contracts, six Native-only baseline checks, one socket
+The Native suite contains 132 JUnit tests: 36 shared header, principal, filter,
+authentication and server contracts, six Native-only baseline checks, one socket
 smoke test, 12 internal request-head parser tests, 11 fixed-length input tests,
 14 chunked input tests, 12 fixed-length/no-body output tests, 9 chunked output tests,
-11 response-head writer tests, and 19 server integration tests.
-The isolated `jvm-reference` build runs the same 32 direct JUnit
+11 response-head writer tests, and 20 Native-only server integration tests.
+The isolated `jvm-reference` build runs the same 36 direct JUnit
 contract tests against the real JDK implementation without loading this library's
 production classes. The shared JUnit sources are registered in the JVM project's
 `Test` configuration and

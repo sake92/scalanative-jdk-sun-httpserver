@@ -174,8 +174,11 @@ private[httpserver] final class ServerExchange(
     if (closed) return
     try {
       if (committed) {
-        userOutput.close()
-        responseStream.close()
+        try closeRequest()
+        finally {
+          try userOutput.close()
+          finally responseStream.close()
+        }
       } else abort()
     } catch { case _: IOException => abort() }
     finally {

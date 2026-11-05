@@ -218,6 +218,34 @@ class HttpServerTest {
     assertEquals(2, inputCloses.get())
   }
 
+  @Test def exchangeCloseHonorsStreamOrder(): Unit = withServer { server =>
+    val trace = new AtomicReference[String]("")
+    server.createContext("/", new HttpHandler {
+      override def handle(exchange: HttpExchange): Unit = {
+        val input = new FilterInputStream(exchange.getRequestBody()) {
+          override def close(): Unit = {
+            trace.set(trace.get() + "input;")
+            super.close()
+          }
+        }
+        val output = new FilterOutputStream(exchange.getResponseBody()) {
+          override def close(): Unit = {
+            trace.set(trace.get() + "output;")
+            super.close()
+          }
+        }
+        exchange.setStreams(input, output)
+        exchange.sendResponseHeaders(200, 1)
+        exchange.getResponseBody().write('x')
+        exchange.close()
+        exchange.close()
+      }
+    })
+    server.start()
+    assertEquals("x", request(server).body)
+    assertEquals("input;output;", trace.get())
+  }
+
   @Test def authenticatesRealExchanges(): Unit = withServer { server =>
     val calls = new AtomicInteger()
     val context = server.createContext("/", new HttpHandler {

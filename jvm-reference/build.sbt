@@ -9,6 +9,7 @@ lazy val root = project
       baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HeadersTest.scala",
       baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HttpPrincipalTest.scala",
       baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/FilterTest.scala",
+      baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HttpServerContractTest.scala",
       baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HeaderExchange.scala",
       baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/BasicAuthenticatorTest.scala"
     ),

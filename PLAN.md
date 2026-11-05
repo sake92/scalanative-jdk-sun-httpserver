@@ -16,8 +16,9 @@ filter API, request-head parsing/framing validation, and fixed-length/chunked
 request input, fixed-length/chunked/no-body response output, and response-head
 serialization/framing selection are implemented, along with working default
 server factories, contexts and concrete exchanges. HTTP persistence, sequential
-pipelining and bounded unread-body draining are implemented. Compatibility and
-lifecycle audit, including provider-discovery feasibility, is next.
+pipelining and bounded unread-body draining are implemented. The local API and
+lifecycle audit, including provider-discovery feasibility, is recorded in
+`COMPATIBILITY.md`. External platform validation and upstream assessment remain.
 
 The initial compatibility target is the JDK 8-era public HTTP API. Use current
 published API documentation to identify subsequent changes, without silently
@@ -66,7 +67,8 @@ Primary contracts:
 - Private engine: an internal package with package-scoped implementation types.
 - JUnit tests: `src/test/scala/org/scalanative/testsuite/httpserver/`.
 - Shared contract tests are direct JUnit classes (`HeadersTest`,
-  `HttpPrincipalTest`, `FilterTest`, and `BasicAuthenticatorTest`) with test
+  `HttpPrincipalTest`, `FilterTest`, `BasicAuthenticatorTest`, and
+  `HttpServerContractTest`) with test
   bodies and `org.junit.Assert` assertions. The isolated JVM reference project registers
   those same sources in its `Test` configuration against the JDK classes; it
   does not load this library's production classes.
@@ -493,6 +495,24 @@ stop during idle and active exchanges. No async networking engine is planned.
 
 ### 6. Compatibility and upstream assessment
 
+The local inventory is in [COMPATIBILITY.md](COMPATIBILITY.md): all declared HTTP
+methods, absent HTTPS/SPI/newer APIs, protocol restrictions, lifecycle policy,
+validation coverage and upstream assessment. The provider remains deferred:
+its required `createHttpsServer` return type is outside the current scope.
+Native ServiceLoader has build-time provider selection, while arbitrary runtime
+provider class loading remains an unresolved requirement. No replacement public
+SPI or TLS placeholders were added.
+
+Current audit checkpoint checklist (shared real-server contracts):
+
+| Behavior | Expected result | Test |
+| --- | --- | --- |
+| Lifecycle and context validation | Binding, handler registration, invalid paths and terminal stop follow the public contract | `HttpServerContractTest.lifecycleAndContexts` |
+| Context dispatch | Longest case-sensitive prefix wins; removal affects subsequent requests | `HttpServerContractTest.routesAndRemovesContexts` |
+| Real exchange/filter contract | Request metadata, immutable headers, context defaults and filter attributes reach a fixed-length echo handler | `HttpServerContractTest.filtersAndExchangeMetadata` |
+| Persistent connection | Two fully consumed requests share one TCP connection and preserve response order | `HttpServerContractTest.reusesConnectionForSequentialRequests` |
+| Exchange termination order (Native) | Explicit exchange close closes wrapped request input before wrapped response output, once each | `HttpServerTest.exchangeCloseHonorsStreamOrder` |
+
 Complete the API inventory and document unsupported methods explicitly. Run
 shared contract tests on the JDK and Native, plus Native raw-socket integration
 tests. Validate Linux first, then macOS and Windows before claiming portability.
@@ -589,15 +609,15 @@ and disconnect tests that higher-level clients hide.
 - [x] Response-head serialization, validation and framing selection.
 - [x] Initial blocking server, contexts, real exchanges and socket integration tests.
 - [x] HTTP persistence, pipelining and bounded unread-body draining.
-- [ ] Lifecycle/compatibility audit and HTTP-only provider-discovery feasibility (next).
-- [ ] Compatibility audit and upstream discussion.
+- [x] Local lifecycle/API compatibility audit and provider-discovery feasibility.
+- [ ] External compatibility validation (JDK 8 runtime, macOS/Windows) and upstream discussion.
 
-The shared header, principal, filter, and authentication JUnit contracts run as 32
+The shared header, principal, filter, authentication and server JUnit contracts run as 36
 tests on the JVM reference project and, together with the seven Native-only
 baseline/socket tests, 12 request-head parser tests, 11 fixed-length input
 tests, 14 chunked input tests, 12 fixed-length/no-body output tests, and 9 chunked
-output tests, 11 response-head writer tests and 19 server integration tests,
-as 127 tests on Native.
+output tests, 11 response-head writer tests and 20 Native-only server integration tests,
+as 132 tests on Native.
 Internal engine tests use the engine package to access package-scoped code;
 they stay in the Native test tree and are not shared with the JDK reference.
 Run `testFull` (and `+testFull`
@@ -639,6 +659,8 @@ Latest implementation validation (2026-11-05, Linux, Temurin JDK 21.0.10):
 
 | Target | Command | Result on Scala 2.12.21, 2.13.18, and 3.9.0 |
 | --- | --- | --- |
+| Native local compatibility audit | `sbt -batch +testFull` | 132 tests passed per version, zero failures |
+| JVM reference local compatibility audit | `sbt -batch +testFull` in `jvm-reference/` | 36 shared tests passed per version, zero failures |
 | Native persistence slice | `sbt -batch +testFull` | 127 tests passed per version, zero failures |
 | Native server integration slice (previous) | `sbt -batch +testFull` | 119 tests passed per version, zero failures |
 | Native response-head writer slice (previous) | `sbt -batch +testFull` | 108 tests passed per version, zero failures |
@@ -651,7 +673,34 @@ Latest implementation validation (2026-11-05, Linux, Temurin JDK 21.0.10):
 | JVM reference (previous server slice) | `sbt -batch +testFull` in `jvm-reference/` | 32 shared tests passed per version, zero failures |
 | Refined shared tests (previous API slice) | Cross-version `+testOnly` for FilterTest and BasicAuthenticatorTest in `jvm-reference/` | 5 filter and 10 authentication tests passed per version after subsequent test refinements |
 
-The persistence slice adds 8 Native-only tests, bringing the server suite to 19.
+The local compatibility audit adds four real-server contracts shared with the
+JDK reference build and one Native regression. The regression failed before the
+fix with `output;input;` instead of `input;output;`: explicit exchange close now
+closes the wrapped request before the wrapped response, as specified by the
+JDK 8 API. Response cleanup is in `finally`, including the underlying response
+stream when a user wrapper fails. Repeated close remains idempotent.
+The final full matrix passed 132 Native and 36 JVM tests on all three Scala
+versions. No dependencies or public APIs were added.
+
+The first shared-server Native run also exposed two Scala Native 0.5.12 platform
+quirks in the independent test client: writing an empty array to a socket throws
+ArrayIndexOutOfBoundsException, and two loopback InetAddress values with the same
+numeric address compare unequal. Tests avoid the empty write and compare numeric
+address strings, as the existing integration suite does. These platform behaviors
+were not changed by this library. The original 36-test JVM matrix and the final
+matrix after those test-client adjustments both passed.
+
+The compatibility inventory records that this remains a standalone HTTP subset.
+Native ServiceLoader documentation was checked through Context7 and the local
+Scala Native checkout; its ahead-of-time provider selection does not supply the
+absent HTTPS return type or establish runtime class-name loading compatibility.
+Contribution and JUnit conventions were inspected in the local checkout at
+`ed42ba979`. Source placement, maintainer agreement and CI cost remain external
+assessment items; no maintainer messages were sent. Linux is the only validated
+platform. `git diff --check` passed; existing GNU-stack linker warnings remain
+non-failing.
+
+The previous persistence slice adds 8 Native-only tests, bringing its server suite to 19.
 Focused server tests passed, then the final `sbt -batch +testFull` passed all
 127 Native tests on each configured Scala version. Tests exercise sequential
 reuse, pipelining of mixed framing/HEAD responses, close-token precedence,
@@ -770,6 +819,6 @@ sbt's read-only cache. A scoped Native clean followed by `+testFull` resolved th
 in both Headers and BasicAuthenticator work. Use `testFull` for full-suite proof:
 sbt 2's `test` can skip cached passing tests, even after clean.
 
-Provider discovery, remaining lifecycle/compatibility audit, direct mutable-realm
-extension coverage, and macOS/Windows validation remain deferred as described
-above. No upstream readiness or acceptance is claimed.
+Provider discovery, direct mutable-realm extension coverage, JDK 8 runtime
+comparison and macOS/Windows validation remain deferred as described above.
+The local audit is complete; no upstream readiness or acceptance is claimed.
