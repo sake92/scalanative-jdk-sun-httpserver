@@ -33,7 +33,11 @@ jobs:
             --output "$RUNNER_TEMP/publishing-jdk"
           echo "JAVA_HOME=$RUNNER_TEMP/publishing-jdk" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/publishing-jdk/bin" >> "$GITHUB_PATH"
-      - run: sbt ci-release
+      - name: Publish
+        # The sbt shell script can add a cached full-JDK rt.jar via scala.ext.dirs.
+        run: |
+          sbt_script=$(readlink -f "$(command -v sbt)")
+          "$JAVA_HOME/bin/java" -jar "$(dirname "$sbt_script")/sbt-launch.jar" ci-release
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
