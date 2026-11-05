@@ -7,8 +7,8 @@ import java.util.concurrent.Executor
 /**
  * The abstract instance contract for a blocking HTTP server.
  *
- * The default implementation uses blocking sockets and closes each connection
- * after one exchange. Custom provider discovery and HTTPS remain deferred.
+ * The default implementation uses blocking sockets and handles exchanges
+ * sequentially on each connection. Custom provider discovery and HTTPS remain deferred.
  */
 abstract class HttpServer protected () {
   @throws[IOException]

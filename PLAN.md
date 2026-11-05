@@ -15,9 +15,9 @@ complete; headers, principals, authentication, the initial exchange/context/
 filter API, request-head parsing/framing validation, and fixed-length/chunked
 request input, fixed-length/chunked/no-body response output, and response-head
 serialization/framing selection are implemented, along with working default
-server factories, contexts and concrete exchanges. The server currently closes
-each connection after one exchange. Persistence and bounded unread-body draining
-are next.
+server factories, contexts and concrete exchanges. HTTP persistence, sequential
+pipelining and bounded unread-body draining are implemented. Compatibility and
+lifecycle audit, including provider-discovery feasibility, is next.
 
 The initial compatibility target is the JDK 8-era public HTTP API. Use current
 published API documentation to identify subsequent changes, without silently
@@ -341,9 +341,10 @@ chunk extensions, trailer syntax validation/discarding, and retention of
 following-request bytes. Fixed-length and chunked response output are also
 complete, and no-body output reuses the fixed-length writer with length zero.
 Stream primitives and their first concrete server/exchange integration are
-complete. HEAD/bodyless response selection and lazy `100 Continue` are tested
-through real exchanges in section 5. Persistence and bounded unread-body draining
-are the next separately requested slice.
+complete. HEAD/bodyless response selection, lazy `100 Continue`, persistence,
+sequential pipelining and bounded unread-body draining are tested through real
+exchanges in section 5. The next separately requested step is the compatibility
+and lifecycle audit in section 6, including HTTP-only provider feasibility.
 
 Support Content-Length and chunked requests, chunk extensions/trailers as
 appropriate, and retained bytes between exchanges. Bound line/header sizes and
@@ -358,11 +359,48 @@ Use byte-level tests with deliberately fragmented input and multiple messages.
 
 ### 5. HttpServer and real exchanges
 
+Completed slice: persistence, ordered pipelining and bounded unread-body draining.
+Checklist before implementation, in `HttpServerTest`:
+
+| Behavior | Expected result | Test |
+| --- | --- | --- |
+| HTTP/1.1 persistence | Reuse a socket by default; case-insensitive close tokens on either side override persistence; exchanges get fresh state | `reusesHttp11ConnectionsAndHonorsCloseTokens` |
+| Pipelining | Parse and respond sequentially in arrival order across fixed/chunked/no-body boundaries, preserving buffered bytes | `pipelinesMixedFramingInOrder` |
+| HTTP/1.0 | Require explicit keep-alive, and close for unknown-length output regardless of keep-alive | `http10RequiresExplicitKeepAlive` |
+| Unread/closed bodies | Drain small fixed/chunked bodies and trailers even after application close; cap-inclusive success preserves next request | `drainsUnreadAndClosedBodies` |
+| Unsafe remainder | Oversized wire remainder, malformed/truncated framing, or unsent Expect body prevents reuse; never dispatch buffered next request | `closesWhenDrainBudgetOrBodyFramingFails` |
+| Absolute drain deadline | Slow trickling data cannot renew the drain budget; close within bounded time | `slowUnreadBodiesHaveAnAbsoluteDrainDeadline` |
+| Stop and idle state | Remove finished exchanges from active state before waiting for another head; stop closes idle sockets and does not dispatch queued requests | `stopClosesIdlePersistentConnectionsAndSuppressesQueuedRequests` |
+| Output failure | Over/under-writing, handler failures and explicit response close prevent further dispatch on that connection | `doesNotReuseOnResponseFailure` |
+
+Policy for this slice: at most 65536 wire bytes and one second total are spent
+draining a request body. Both payload and chunk metadata count; time is checked
+before every source read, including chunk metadata. Socket read timeouts shrink
+to the remaining deadline and are restored afterwards. Application body reads
+retain their prior blocking behavior. A 30-second socket timeout applies while
+waiting for another request head. Close-delimited HTTP/1.0 output always closes.
+An early final response with an unsent 100-continue body closes without draining.
+Protocol errors and uncaught handler/output failures never permit reuse.
+Completing a non-reusable response closes the socket immediately, even if the
+handler continues running afterwards; handler return is not the close deadline.
+Early routing/protocol rejections conservatively close the connection. If a
+drain fails after the response head has already advertised persistence, the
+connection is still closed and no further request is dispatched.
+
+One buffered input/output pair belongs to the connection; each exchange gets
+new framing streams and attributes. Closing an application request stream closes
+that view, while the exchange may finish draining its framing decoder before
+closing it. Response completion includes closing wrappers, finishing output,
+and resolving the unread request body. Pipelining is sequential; there is no
+parallel execution of requests on a single connection. Idle persistent sockets
+occupy a worker (the accept thread with the default executor), so callers should
+provide a concurrent executor when serving multiple long-lived connections.
+
 Completed slice: first concrete server/context/exchange integration. These types
 depend on one another and are implemented together so factories return a working
-server rather than placeholders. Initial policy: one exchange per connection,
-always `Connection: close`; persistence and bounded unread-body draining remain
-separate later slices. Checklist before implementation, `HttpServerTest`:
+server rather than placeholders. Its initial policy was one exchange per
+connection with `Connection: close`; that policy is superseded by the persistence
+slice above. Original checklist before implementation, `HttpServerTest`:
 
 | Behavior | Expected result | Test |
 | --- | --- | --- |
@@ -386,10 +424,11 @@ interrupts the owned accept thread and joins it within a separate 500 ms cleanup
 budget. It does not interrupt/shut down caller executor threads. Arbitrary user
 code that ignores both interruption and closed sockets cannot be forcibly
 terminated; incomplete owned-thread cleanup is reported to stderr. Socket reads
-have no idle timeout in this slice; stop owns their cancellation by shutdown/close.
-No automatic unread-body draining, asynchronous handler continuation, ServiceLoader
-SPI discovery, TLS, CONNECT tunnels, upgrades or manually emitted final 1xx
-responses are introduced. Attributes are per-exchange overrides with context
+retain blocking application body reads; stop owns their cancellation by socket
+shutdown/close. The persistence slice adds bounded draining and a timeout while
+waiting for another request head. Asynchronous handler continuation, ServiceLoader
+SPI discovery, TLS, CONNECT tunnels, upgrades and manually emitted final 1xx
+responses remain unsupported. Attributes are per-exchange overrides with context
 fallback. HEAD/no-body payload writes are rejected rather than silently discarded.
 
 Completed slice: response-head serialization and framing selection, the missing
@@ -549,16 +588,16 @@ and disconnect tests that higher-level clients hide.
 - [x] No-body response output via the zero-length fixed-length writer.
 - [x] Response-head serialization, validation and framing selection.
 - [x] Initial blocking server, contexts, real exchanges and socket integration tests.
-- [ ] HTTP persistence, pipelining and bounded unread-body draining (next).
-- [ ] Provider discovery and remaining lifecycle/compatibility audit.
+- [x] HTTP persistence, pipelining and bounded unread-body draining.
+- [ ] Lifecycle/compatibility audit and HTTP-only provider-discovery feasibility (next).
 - [ ] Compatibility audit and upstream discussion.
 
 The shared header, principal, filter, and authentication JUnit contracts run as 32
 tests on the JVM reference project and, together with the seven Native-only
 baseline/socket tests, 12 request-head parser tests, 11 fixed-length input
 tests, 14 chunked input tests, 12 fixed-length/no-body output tests, and 9 chunked
-output tests, 11 response-head writer tests and 11 server integration tests,
-as 119 tests on Native.
+output tests, 11 response-head writer tests and 19 server integration tests,
+as 127 tests on Native.
 Internal engine tests use the engine package to access package-scoped code;
 they stay in the Native test tree and are not shared with the JDK reference.
 Run `testFull` (and `+testFull`
@@ -600,7 +639,8 @@ Latest implementation validation (2026-11-05, Linux, Temurin JDK 21.0.10):
 
 | Target | Command | Result on Scala 2.12.21, 2.13.18, and 3.9.0 |
 | --- | --- | --- |
-| Native server integration slice | `sbt -batch +testFull` | 119 tests passed per version, zero failures |
+| Native persistence slice | `sbt -batch +testFull` | 127 tests passed per version, zero failures |
+| Native server integration slice (previous) | `sbt -batch +testFull` | 119 tests passed per version, zero failures |
 | Native response-head writer slice (previous) | `sbt -batch +testFull` | 108 tests passed per version, zero failures |
 | Native no-body output slice (previous) | `sbt -batch +testFull` | 97 tests passed per version, zero failures |
 | Native chunked output slice (previous) | `sbt -batch +testFull` | 95 tests passed per version, zero failures |
@@ -608,10 +648,30 @@ Latest implementation validation (2026-11-05, Linux, Temurin JDK 21.0.10):
 | Native chunked input slice (previous) | `sbt -batch +testFull` | 76 tests passed per version, zero failures |
 | Native fixed-length input slice (previous) | `sbt -batch +testFull` | 62 tests passed per version, zero failures |
 | Native request-head slice (previous) | `sbt -batch +testFull` | 51 tests passed per version, zero failures |
-| JVM reference (rerun for server slice) | `sbt -batch +testFull` in `jvm-reference/` | 32 shared tests passed per version, zero failures |
+| JVM reference (previous server slice) | `sbt -batch +testFull` in `jvm-reference/` | 32 shared tests passed per version, zero failures |
 | Refined shared tests (previous API slice) | Cross-version `+testOnly` for FilterTest and BasicAuthenticatorTest in `jvm-reference/` | 5 filter and 10 authentication tests passed per version after subsequent test refinements |
 
-The server integration slice adds 11 Native-only tests. Focused
+The persistence slice adds 8 Native-only tests, bringing the server suite to 19.
+Focused server tests passed, then the final `sbt -batch +testFull` passed all
+127 Native tests on each configured Scala version. Tests exercise sequential
+reuse, pipelining of mixed framing/HEAD responses, close-token precedence,
+HTTP/1.0 keep-alive and close delimiting, fresh exchange state, stale stream
+handles, exact/over-limit drains, malformed/truncated bodies, early Expect
+rejection, slow trickling peers, output failures and stop during persistent work.
+No public API signatures or shared JVM-reference tests changed; the reference
+matrix was not rerun for this internal-engine slice.
+
+Regression evidence: the slow-trickle test initially timed out at the client
+while data kept arriving every 100 ms. Native BufferedInputStream's bulk read
+can perform multiple blocking refills before returning, hiding the absolute
+deadline. Drain reads now stop at currently available bytes (or one blocking
+byte), so the deadline is rechecked between refills. Tightening the same test to
+hold the handler alive after response close exposed delayed transport cleanup;
+non-reusable response completion now closes its socket immediately. The final
+cross-version matrix includes both checks. No dependencies or adapted sources
+were added. `git diff --check` passed; existing linker warnings remained non-failing.
+
+The previous server integration slice added 11 Native-only tests. Focused
 `testOnly org.scalanative.testsuite.httpserver.HttpServerTest` passed all 11 on
 Scala 3.9.0. `sbt -batch +testFull` passed all 119 Native tests on each configured
 Scala version, and `sbt -batch +testFull` in `jvm-reference/` reran all 32 shared
@@ -631,8 +691,8 @@ Factories, literal context routing, filters/stream wrapping, Basic authenticatio
 lazy 100 Continue, fixed/chunked/no-body output, malformed requests, handler
 failures, over/under-writing, executor rejection/ownership and stop during pending
 headers/body reads or active/queued handlers are tested over loopback sockets.
-All current responses close the connection; keep-alive/pipelining and unread-body
-draining are not implemented by this slice. No dependencies or adapted sources
+At that stage, all responses closed the connection; keep-alive/pipelining and
+unread-body draining were not implemented by that slice. No dependencies or adapted sources
 were added. `git diff --check` passed; Scala 3 wildcard deprecation and existing
 GNU-stack linker warnings remained non-failing.
 
@@ -710,6 +770,6 @@ sbt's read-only cache. A scoped Native clean followed by `+testFull` resolved th
 in both Headers and BasicAuthenticator work. Use `testFull` for full-suite proof:
 sbt 2's `test` can skip cached passing tests, even after clean.
 
-Persistent connections, bounded unread-body draining, provider discovery, direct
-mutable-realm extension coverage, and macOS/Windows validation remain deferred
-as described above. No upstream readiness or acceptance is claimed.
+Provider discovery, remaining lifecycle/compatibility audit, direct mutable-realm
+extension coverage, and macOS/Windows validation remain deferred as described
+above. No upstream readiness or acceptance is claimed.

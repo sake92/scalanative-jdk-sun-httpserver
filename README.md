@@ -9,13 +9,20 @@ headers, wrapped streams and exchange attributes. Fixed-length and chunked
 request/response bodies, HEAD/bodyless responses and lazy `100 Continue` are
 implemented and tested over loopback sockets.
 
-This first server closes each connection after one exchange and does not drain
-unread bodies. The default executor runs handlers on the accept thread, so idle
-or slow clients serialize default work. Use `setExecutor` before `start` for
-concurrent dispatch; the caller owns that executor and must shut it down.
+HTTP/1.1 connections persist by default; HTTP/1.0 requires explicit keep-alive.
+Pipelined requests are handled sequentially and responses retain request order.
+Unread request bodies are drained up to 64 KiB of wire data and a one-second
+total deadline; an incomplete or invalid body closes the connection. Waiting for
+another request head has a 30-second read timeout. These are drain/idle bounds,
+not a maximum request-body size or a timeout for application body reads.
+
+The default executor runs handlers on the accept thread, so idle or slow clients
+serialize default work. Persistent connections occupy a worker while idle.
+Use `setExecutor` before `start` for concurrent dispatch; the caller owns that
+executor and must shut it down.
 `stop(delay)` allows active handlers a bounded grace period, then closes sockets
 and stops the accept thread. Arbitrary handlers must cooperate with interruption
-or closed sockets. Persistent connections and provider discovery remain deferred.
+or closed sockets. Provider discovery remains deferred.
 The [implementation plan](PLAN.md) tracks remaining compatibility and server work.
 
 Requires JDK 17 or newer, sbt, and the
@@ -34,11 +41,11 @@ sbt 'testOnly org.scalanative.testsuite.httpserver.HeadersTest'
 Tests use Scala Native's JUnit plugin and compile to a native executable.
 Use `testFull` to run every test; sbt 2's `test` runs only tests without a
 cached passing result, so it can report zero tests even after `clean`.
-The Native suite contains 119 JUnit tests: 32 shared header, principal, filter,
+The Native suite contains 127 JUnit tests: 32 shared header, principal, filter,
 and authentication contracts, six Native-only baseline checks, one socket
 smoke test, 12 internal request-head parser tests, 11 fixed-length input tests,
 14 chunked input tests, 12 fixed-length/no-body output tests, 9 chunked output tests,
-11 response-head writer tests, and 11 server integration tests.
+11 response-head writer tests, and 19 server integration tests.
 The isolated `jvm-reference` build runs the same 32 direct JUnit
 contract tests against the real JDK implementation without loading this library's
 production classes. The shared JUnit sources are registered in the JVM project's

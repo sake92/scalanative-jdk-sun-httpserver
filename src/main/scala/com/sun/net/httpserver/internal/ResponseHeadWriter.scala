@@ -55,6 +55,10 @@ private[httpserver] object ResponseHeadWriter {
     framing
   }
 
+  def usesCloseDelimited(method: String, version: String, status: Int, length: Long): Boolean =
+    version == "HTTP/1.0" && length == 0 && !forbidsLength(status) &&
+      status != 205 && !metadataOnly(method, status)
+
   private def copyValidated(headers: Headers): Headers = {
     val snapshot = new Headers()
     val fields = headers.entrySet().iterator()
@@ -81,13 +85,13 @@ private[httpserver] object ResponseHeadWriter {
       headers: Headers
   ): Framing = {
     headers.remove("Transfer-Encoding")
-    if (status < 200 || status == 204) {
+    if (forbidsLength(status)) {
       headers.remove("Content-Length")
       NoBody
     } else if (status == 205) {
       headers.set("Content-Length", "0")
       NoBody
-    } else if (method == "HEAD" || status == 304) {
+    } else if (metadataOnly(method, status)) {
       if (length > 0) headers.set("Content-Length", length.toString)
       else normalizeRepresentationLength(headers)
       NoBody
@@ -99,15 +103,19 @@ private[httpserver] object ResponseHeadWriter {
       FixedLength(length)
     } else {
       headers.remove("Content-Length")
-      if (version == "HTTP/1.1") {
-        headers.set("Transfer-Encoding", "chunked")
-        Chunked
-      } else {
+      if (usesCloseDelimited(method, version, status, length)) {
         headers.set("Connection", "close")
         CloseDelimited
+      } else {
+        headers.set("Transfer-Encoding", "chunked")
+        Chunked
       }
     }
   }
+
+  private def forbidsLength(status: Int): Boolean = status < 200 || status == 204
+
+  private def metadataOnly(method: String, status: Int): Boolean = method == "HEAD" || status == 304
 
   private def normalizeRepresentationLength(headers: Headers): Unit = {
     val values = headers.get("Content-Length")

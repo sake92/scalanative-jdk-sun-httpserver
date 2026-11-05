@@ -7,7 +7,7 @@ import java.util.concurrent.Executor
 import scala.util.control.NonFatal
 import com.sun.net.httpserver.{Headers, HttpContext, HttpHandler, HttpServer}
 
-/** Initial blocking server: one exchange per connection, with explicit close. */
+/** Blocking server with sequential exchanges on each persistent connection. */
 private[httpserver] final class BlockingHttpServer extends HttpServer {
   private val lifecycle = new Object()
   private val contexts = new LinkedHashMap[String, ServerContext]()
@@ -154,25 +154,41 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
   }
 
   private def process(socket: Socket): Unit = {
-    var exchange: ServerExchange = null
     try {
       if (isStopped || socket.isClosed()) return
       val input = new BufferedInputStream(socket.getInputStream())
       val output = new BufferedOutputStream(socket.getOutputStream())
+      var first = true
+      while (!isStopped && !socket.isClosed() && !Thread.currentThread().isInterrupted()) {
+        val timeout = if (first) 0 else ConnectionPolicy.idleMillis
+        socket.setSoTimeout(timeout)
+        if (!processExchange(socket, input, output)) return
+        first = false
+      }
+    } catch { case _: IOException => () }
+    finally release(socket)
+  }
+
+  private def processExchange(socket: Socket, input: BufferedInputStream, output: BufferedOutputStream): Boolean = {
+    var exchange: ServerExchange = null
+    try {
       val head = try RequestHeadParser.read(input)
       catch {
-        case error: RequestHeadParser.ParseException => errorResponse(output, error.responseCode); return
+        case error: RequestHeadParser.ParseException => errorResponse(output, error.responseCode); return false
       }
-      if (head.isEmpty) return
+      if (head.isEmpty) return false
+      socket.setSoTimeout(0)
       val request = head.get
-      if (request.method == "CONNECT") { errorResponse(output, 501); return }
+      if (request.method == "CONNECT") { errorResponse(output, 501); return false }
+      val persistent = try ConnectionPolicy.requestPersistent(request)
+      catch { case _: ProtocolException => errorResponse(output, 400); return false }
       val expectations = request.headers.collect {
         case (name, value) if name.equalsIgnoreCase("Expect") => value
       }.flatMap(_.split(",", -1)).map(HttpSyntax.trimOws)
       if (expectations.nonEmpty && (request.version != "HTTP/1.1" ||
           !expectations.forall(_.equalsIgnoreCase("100-continue")))) {
         errorResponse(output, 417)
-        return
+        return false
       }
       val path = if (request.target.startsWith("/")) request.target.takeWhile(_ != '?')
       else Option(new URI(request.target).getRawPath()).getOrElse("")
@@ -186,32 +202,43 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
         }
         selected
       }
-      if (context == null) { errorResponse(output, 404); return }
+      if (context == null) { errorResponse(output, 404); return false }
       val hasBody = request.framing match {
         case RequestHeadParser.NoBody => false
         case RequestHeadParser.FixedLength(length) => length > 0
         case RequestHeadParser.Chunked => true
       }
-      exchange = new ServerExchange(socket, request, context, input, output, expectations.nonEmpty && hasBody)
+      exchange = new ServerExchange(socket, request, context, input, output,
+        expectations.nonEmpty && hasBody, persistent, () => !isStopped)
       val admitted = lifecycle.synchronized {
         if (stopped) false
         else { active.put(socket, Thread.currentThread()); true }
       }
-      if (!admitted) return
+      if (!admitted) return false
       context.handle(exchange)
       if (!exchange.hasResponse && !exchange.isClosed) exchange.sendResponseHeaders(500, -1)
       exchange.close()
+      exchange.canReuse
     } catch {
-      case _: InterruptedException => Thread.currentThread().interrupt()
-      case _: ProtocolException => failExchange(exchange, 400)
-      case _: EOFException => failExchange(exchange, 400)
-      case NonFatal(_) => failExchange(exchange, 500)
-    } finally release(socket)
+      case _: InterruptedException => Thread.currentThread().interrupt(); false
+      case _: ProtocolException => failExchange(exchange, 400); false
+      case _: EOFException => failExchange(exchange, 400); false
+      case NonFatal(_) => failExchange(exchange, 500); false
+    } finally {
+      lifecycle.synchronized {
+        active.remove(socket)
+        lifecycle.notifyAll()
+      }
+    }
   }
 
   private def failExchange(exchange: ServerExchange, code: Int): Unit = {
     if (exchange != null && !exchange.hasResponse && !exchange.isClosed) {
-      try { exchange.sendResponseHeaders(code, -1); exchange.close() }
+      try {
+        exchange.getResponseHeaders().set("Connection", "close")
+        exchange.sendResponseHeaders(code, -1)
+        exchange.close()
+      }
       catch { case NonFatal(_) => exchange.abort() }
     } else if (exchange != null) exchange.abort()
   }
