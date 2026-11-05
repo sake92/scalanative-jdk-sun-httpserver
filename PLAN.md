@@ -12,9 +12,9 @@ passing test run and a short account of limitations. Work directly and maintain
 current decisions, behavior checklists, and validation results in this file.
 Repository setup is
 complete; headers, principals, authentication, the initial exchange/context/
-filter API, request-head parsing/framing validation, and fixed-length request
-input are implemented. Chunked request input is next; response streams and the
-concrete server remain deferred.
+filter API, request-head parsing/framing validation, and fixed-length/chunked
+request input are implemented. Response streams are next; the concrete server
+remains deferred.
 
 The initial compatibility target is the JDK 8-era public HTTP API. Use current
 published API documentation to identify subsequent changes, without silently
@@ -165,6 +165,38 @@ newer `Request` and `AutoCloseable` additions are deferred.
 
 ### 4. Blocking HTTP framing and streams
 
+Completed slice: chunked request input. Behavior checklist (written before
+implementation), all in `ChunkedInputStreamTest`:
+
+| Behavior | Expected result | Test |
+| --- | --- | --- |
+| Decoding | Single/bulk reads return only payload, respect buffer boundaries, handle mixed-case hex and leading zeros, and retain next request bytes | `decodesChunksAndPreservesNextRequest` |
+| Empty body | Consume terminal chunk and trailer terminator before reporting completion; constructors and zero reads do no I/O | `completionRequiresTheTrailerTerminator` |
+| Extensions | Accept tokens, quoted strings/escapes and grammar-permitted whitespace; ignore unknown extensions on data/last chunks | `acceptsChunkExtensions` |
+| Bad framing | Reject malformed/overflowing sizes, bad CRLF and malformed extensions; failure is terminal | `rejectsMalformedChunkFraming` |
+| Large chunks | Keep size in Long and stream without allocating the whole chunk | `supportsLongChunkSizes` |
+| Trailers | Validate field syntax with the same rules as headers, discard all trailers without merging them, and preserve next request | `validatesAndDiscardsTrailers` |
+| Bounds | Enforce inclusive chunk-line, cumulative extension, trailer-line/section and trailer-count limits | `enforcesMetadataLimits` |
+| Fragmentation | Decode across every source split, buffered short reads, and chunk boundaries | `handlesEveryFragmentBoundary` |
+| Truncation | EOF at any incomplete wire prefix throws EOFException and cannot be retried | `truncationIsTerminal` |
+| I/O failure | Preserve source IOException during sizes, payload, delimiters, trailers or availability; prevent subsequent source access | `sourceFailuresAreTerminal` |
+| Skip | Count actual decoded bytes across chunks, including short reads; stop at completion for huge skips | `skipCountsOnlyPayloadBytes` |
+| Availability | Report only available bytes within current payload; never parse framing or trailers in available | `availabilityNeverConsumesFraming` |
+| Arguments | Null input/buffers and invalid/overflowing ranges fail without consuming bytes | `rejectsInvalidArgumentsWithoutConsumingInput` |
+| Close and rewind | Idempotent non-draining close preserves source ownership; reject operations after close and unsupported reset | `closeAndResetPreserveConnectionOwnership` |
+
+The stream retains no trailer fields: syntax-valid trailers, including fields
+that would be unsafe to merge, are discarded and cannot alter request headers,
+authentication, routing or framing. There is no JDK 8 public trailer API. Unknown
+well-formed extensions are ignored. Chunk lines default to 8192 octets excluding
+CRLF, cumulative extension text to 65536 octets, and trailer lines/sections/counts
+to the same bounds as request headers. No whole-body or whole-chunk buffering,
+decoded-body size cap, automatic draining, socket timeouts or server integration
+is introduced. `isComplete` requires consuming the zero chunk, trailers and final
+blank line; reading/skipping exactly the payload length alone is insufficient.
+Common field/token syntax is shared with the existing request-head parser
+to keep trailer validation consistent.
+
 Completed slice: fixed-length request input. Behavior checklist (written before
 implementation), all in `FixedLengthInputStreamTest`:
 
@@ -230,9 +262,10 @@ and framing validation; fixed-length request input; chunked request input; then
 response streams. The first slice is complete and stops at a parsed request
 head and framing decision, with byte-level tests for fragmented input, limits,
 ambiguous framing, and preservation of bytes belonging to the body or next
-request. Fixed-length request input is also complete. The next separately
-requested slice is chunked request input, including chunk extensions, trailer
-validation and retention of following-request bytes.
+request. Fixed-length and chunked request input are also complete, including
+chunk extensions, trailer syntax validation/discarding, and retention of
+following-request bytes. The next separately requested slice is response streams,
+beginning with fixed-length response output before chunked and no-body output.
 
 Support Content-Length and chunked requests, chunk extensions/trailers as
 appropriate, and retained bytes between exchanges. Bound line/header sizes and
@@ -358,14 +391,15 @@ and disconnect tests that higher-level clients hide.
 - [x] Handler/exchange/context/filter API and permanent abstract `HttpServer` instance contract.
 - [x] Request-line/header parsing and request-framing validation.
 - [x] Fixed-length request input.
-- [ ] Chunked request input (next) and response streams.
+- [x] Chunked request input.
+- [ ] Response streams (next: fixed-length response output).
 - [ ] Blocking server and socket integration tests.
 - [ ] Compatibility audit and upstream discussion.
 
 The shared header, principal, filter, and authentication JUnit contracts run as 32
 tests on the JVM reference project and, together with the seven Native-only
-baseline/socket tests, 12 request-head parser tests, and 11 fixed-length input
-tests, as 62 tests on Native.
+baseline/socket tests, 12 request-head parser tests, 11 fixed-length input
+tests, and 14 chunked input tests, as 76 tests on Native.
 Internal engine tests use the engine package to access package-scoped code;
 they stay in the Native test tree and are not shared with the JDK reference.
 Run `testFull` (and `+testFull`
@@ -403,12 +437,22 @@ Latest implementation validation (2026-11-04, Linux, Temurin JDK 21.0.10):
 
 | Target | Command | Result on Scala 2.12.21, 2.13.18, and 3.9.0 |
 | --- | --- | --- |
-| Native fixed-length input slice | `sbt -batch +testFull` | 62 tests passed per version, zero failures |
+| Native chunked input slice | `sbt -batch +testFull` | 76 tests passed per version, zero failures |
+| Native fixed-length input slice (previous) | `sbt -batch +testFull` | 62 tests passed per version, zero failures |
 | Native request-head slice (previous) | `sbt -batch +testFull` | 51 tests passed per version, zero failures |
 | JVM reference (previous API slice) | `sbt -batch +testFull` in `jvm-reference/` | 32 tests passed per version, zero failures |
 | Refined shared tests (previous API slice) | Cross-version `+testOnly` for FilterTest and BasicAuthenticatorTest in `jvm-reference/` | 5 filter and 10 authentication tests passed per version after subsequent test refinements |
 
-The fixed-length input slice adds 11 Native-only tests, including preservation
+The chunked input slice adds 14 Native-only tests, including chunk/extension
+syntax, cumulative extension bounds, bounded trailer syntax validation and
+discarding, every fragmented input split, every truncated prefix, and injected
+source failures throughout framing and payload reads. All 76 tests passed on
+each configured Scala version with `sbt -batch +testFull`. An initial Scala
+3.9.0 `testFull` run also passed before the final close-ownership test refinement.
+Existing request-head tests pass with field/token syntax shared in `HttpSyntax`.
+Trailers never merge into initial headers and no public trailer API is added.
+
+The previous fixed-length input slice added 11 Native-only tests, including preservation
 of the next request, short reads/skips, terminal truncation and source failures,
 and non-draining close without closing the caller's source. All 62 tests passed
 on each configured Scala version with `sbt -batch +testFull`.

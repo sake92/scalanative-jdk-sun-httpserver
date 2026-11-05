@@ -3,6 +3,8 @@ package com.sun.net.httpserver.internal
 import java.io.{IOException, InputStream}
 import java.net.{URI, URISyntaxException}
 
+import HttpSyntax.{isToken, trimOws}
+
 /** Strict HTTP/1.x head parsing. The caller owns and reuses the input stream.
   * After a parse failure the connection must be closed, not parsed again.
   */
@@ -64,13 +66,8 @@ private[httpserver] object RequestHeadParser {
       if (field.isEmpty) done = true
       else {
         if (count == limits.headerCount) fail(431, "Too many header fields")
-        val colon = field.indexOf(':')
-        if (colon <= 0 || !field.substring(0, colon).forall(isToken))
-          fail(400, "Invalid header name or whitespace before colon")
-        val rawValue = field.substring(colon + 1)
-        if (!rawValue.forall(c => c == '\t' || (c >= ' ' && c != 127)))
-          fail(400, "Invalid header value")
-        fields += ((field.substring(0, colon), trimOws(rawValue)))
+        val parsed = HttpSyntax.field(field).getOrElse(fail(400, "Invalid header field"))
+        fields += parsed
         count += 1
       }
     }
@@ -164,18 +161,6 @@ private[httpserver] object RequestHeadParser {
 
   private def values(headers: Vector[(String, String)], name: String): Vector[String] =
     headers.collect { case (key, value) if key.equalsIgnoreCase(name) => value }
-
-  private def trimOws(value: String): String = {
-    var start = 0
-    var end = value.length
-    while (start < end && (value.charAt(start) == ' ' || value.charAt(start) == '\t')) start += 1
-    while (end > start && (value.charAt(end - 1) == ' ' || value.charAt(end - 1) == '\t')) end -= 1
-    value.substring(start, end)
-  }
-
-  private def isToken(c: Char): Boolean =
-    (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-      (c >= '0' && c <= '9') || "!#$%&'*+-.^_`|~".indexOf(c) >= 0
 
   private def fail(code: Int, message: String): Nothing = throw new ParseException(code, message)
 }
