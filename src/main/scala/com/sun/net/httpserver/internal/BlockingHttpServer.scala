@@ -1,0 +1,246 @@
+package com.sun.net.httpserver.internal
+
+import java.io.{BufferedInputStream, BufferedOutputStream, EOFException, IOException}
+import java.net.{BindException, InetSocketAddress, ProtocolException, ServerSocket, Socket, SocketTimeoutException, URI}
+import java.util.{HashMap, HashSet, LinkedHashMap}
+import java.util.concurrent.Executor
+import scala.util.control.NonFatal
+import com.sun.net.httpserver.{Headers, HttpContext, HttpHandler, HttpServer}
+
+/** Initial blocking server: one exchange per connection, with explicit close. */
+private[httpserver] final class BlockingHttpServer extends HttpServer {
+  private val lifecycle = new Object()
+  private val contexts = new LinkedHashMap[String, ServerContext]()
+  private val connections = new HashSet[Socket]()
+  private val active = new HashMap[Socket, Thread]()
+  private var listener: ServerSocket = null
+  private var address: InetSocketAddress = null
+  private var acceptThread: Thread = null
+  private var executor: Executor = null
+  private var started = false
+  private var stopped = false
+
+  override def bind(value: InetSocketAddress, backlog: Int): Unit = lifecycle.synchronized {
+    if (value == null) throw new NullPointerException("address")
+    if (stopped) throw new IllegalStateException("Server is stopped")
+    if (listener != null) throw new BindException("Server is already bound")
+    val socket = new ServerSocket()
+    try {
+      socket.bind(value, backlog)
+      socket.setSoTimeout(250)
+      address = socket.getLocalSocketAddress().asInstanceOf[InetSocketAddress]
+      listener = socket
+    } finally {
+      if (listener == null) socket.close()
+    }
+  }
+
+  override def getAddress(): InetSocketAddress = lifecycle.synchronized { address }
+  override def getExecutor(): Executor = lifecycle.synchronized { executor }
+
+  override def setExecutor(value: Executor): Unit = lifecycle.synchronized {
+    if (started || stopped) throw new IllegalStateException("Server already started or stopped")
+    executor = value
+  }
+
+  override def start(): Unit = lifecycle.synchronized {
+    if (listener == null || started || stopped) throw new IllegalStateException("Server cannot start")
+    if (executor == null) executor = new Executor { override def execute(task: Runnable): Unit = task.run() }
+    acceptThread = new Thread(new Runnable { override def run(): Unit = acceptLoop() }, "httpserver-accept")
+    acceptThread.setDaemon(false)
+    started = true
+    try acceptThread.start()
+    catch {
+      case NonFatal(error) =>
+        stopped = true
+        listener.close()
+        throw error
+    }
+  }
+
+  override def createContext(path: String, handler: HttpHandler): HttpContext = {
+    if (handler == null) throw new NullPointerException("handler")
+    addContext(path, handler)
+  }
+
+  override def createContext(path: String): HttpContext = addContext(path, null)
+
+  override def removeContext(path: String): Unit = lifecycle.synchronized {
+    if (path == null) throw new NullPointerException("path")
+    if (contexts.remove(path) == null) throw new IllegalArgumentException("Unknown context")
+  }
+
+  override def removeContext(context: HttpContext): Unit = lifecycle.synchronized {
+    if (context == null) throw new NullPointerException("context")
+    if (contexts.get(context.getPath()) ne context) throw new IllegalArgumentException("Unknown context")
+    contexts.remove(context.getPath())
+  }
+
+  override def stop(delay: Int): Unit = {
+    require(delay >= 0, "Negative stop delay")
+    var interrupted = Thread.interrupted()
+    val self = Thread.currentThread()
+    val thread = lifecycle.synchronized {
+      if (stopped) {
+        if (interrupted) self.interrupt()
+        return
+      }
+      stopped = true
+      closeListener()
+      val iterator = connections.iterator()
+      while (iterator.hasNext()) {
+        val socket = iterator.next()
+        if (!active.containsKey(socket)) closeSocket(socket)
+      }
+      acceptThread
+    }
+    val deadline = System.nanoTime() + delay.toLong * 1000000000L
+    lifecycle.synchronized {
+      while (!interrupted && hasOtherHandlers(self) && deadline - System.nanoTime() > 0) {
+        val remaining = deadline - System.nanoTime()
+        try lifecycle.wait(math.max(1L, remaining / 1000000L))
+        catch { case _: InterruptedException => interrupted = true }
+      }
+      val iterator = connections.iterator()
+      while (iterator.hasNext()) closeSocket(iterator.next())
+    }
+    if (thread != null && (thread ne self)) {
+      thread.interrupt()
+      val cleanupDeadline = System.nanoTime() + 500000000L
+      while (thread.isAlive() && cleanupDeadline - System.nanoTime() > 0) {
+        val remaining = cleanupDeadline - System.nanoTime()
+        try thread.join(math.max(1L, remaining / 1000000L))
+        catch { case _: InterruptedException => interrupted = true }
+      }
+      if (thread.isAlive()) System.err.println("HTTP server handler exceeded shutdown cleanup budget")
+    }
+    if (interrupted) self.interrupt()
+  }
+
+  private def addContext(path: String, handler: HttpHandler): HttpContext = lifecycle.synchronized {
+    if (path == null) throw new NullPointerException("path")
+    require(path.startsWith("/"), "Context path must start with /")
+    if (stopped) throw new IllegalStateException("Server is stopped")
+    if (contexts.containsKey(path)) throw new IllegalArgumentException("Duplicate context")
+    val context = new ServerContext(this, path, handler)
+    contexts.put(path, context)
+    context
+  }
+
+  private def isStopped: Boolean = lifecycle.synchronized { stopped }
+
+  private def acceptLoop(): Unit = {
+    try {
+      while (!isStopped && !Thread.currentThread().isInterrupted()) {
+        try {
+          val socket = listener.accept()
+          val dispatch = lifecycle.synchronized {
+            if (stopped) null
+            else { connections.add(socket); executor }
+          }
+          if (dispatch == null) closeSocket(socket)
+          else {
+            try dispatch.execute(new Runnable { override def run(): Unit = process(socket) })
+            catch { case NonFatal(_) => release(socket) }
+          }
+        } catch {
+          case _: SocketTimeoutException => ()
+          case error: IOException => if (!isStopped) throw error
+        }
+      }
+    } finally {
+      if (!isStopped) stop(0)
+    }
+  }
+
+  private def process(socket: Socket): Unit = {
+    var exchange: ServerExchange = null
+    try {
+      if (isStopped || socket.isClosed()) return
+      val input = new BufferedInputStream(socket.getInputStream())
+      val output = new BufferedOutputStream(socket.getOutputStream())
+      val head = try RequestHeadParser.read(input)
+      catch {
+        case error: RequestHeadParser.ParseException => errorResponse(output, error.responseCode); return
+      }
+      if (head.isEmpty) return
+      val request = head.get
+      if (request.method == "CONNECT") { errorResponse(output, 501); return }
+      val expectations = request.headers.collect {
+        case (name, value) if name.equalsIgnoreCase("Expect") => value
+      }.flatMap(_.split(",", -1)).map(HttpSyntax.trimOws)
+      if (expectations.nonEmpty && (request.version != "HTTP/1.1" ||
+          !expectations.forall(_.equalsIgnoreCase("100-continue")))) {
+        errorResponse(output, 417)
+        return
+      }
+      val path = if (request.target.startsWith("/")) request.target.takeWhile(_ != '?')
+      else Option(new URI(request.target).getRawPath()).getOrElse("")
+      val context = lifecycle.synchronized {
+        var selected: ServerContext = null
+        val iterator = contexts.values().iterator()
+        while (iterator.hasNext()) {
+          val candidate = iterator.next()
+          if (path.startsWith(candidate.getPath()) &&
+              (selected == null || candidate.getPath().length > selected.getPath().length)) selected = candidate
+        }
+        selected
+      }
+      if (context == null) { errorResponse(output, 404); return }
+      val hasBody = request.framing match {
+        case RequestHeadParser.NoBody => false
+        case RequestHeadParser.FixedLength(length) => length > 0
+        case RequestHeadParser.Chunked => true
+      }
+      exchange = new ServerExchange(socket, request, context, input, output, expectations.nonEmpty && hasBody)
+      val admitted = lifecycle.synchronized {
+        if (stopped) false
+        else { active.put(socket, Thread.currentThread()); true }
+      }
+      if (!admitted) return
+      context.handle(exchange)
+      if (!exchange.hasResponse && !exchange.isClosed) exchange.sendResponseHeaders(500, -1)
+      exchange.close()
+    } catch {
+      case _: InterruptedException => Thread.currentThread().interrupt()
+      case _: ProtocolException => failExchange(exchange, 400)
+      case _: EOFException => failExchange(exchange, 400)
+      case NonFatal(_) => failExchange(exchange, 500)
+    } finally release(socket)
+  }
+
+  private def failExchange(exchange: ServerExchange, code: Int): Unit = {
+    if (exchange != null && !exchange.hasResponse && !exchange.isClosed) {
+      try { exchange.sendResponseHeaders(code, -1); exchange.close() }
+      catch { case NonFatal(_) => exchange.abort() }
+    } else if (exchange != null) exchange.abort()
+  }
+
+  private def errorResponse(output: BufferedOutputStream, code: Int): Unit = {
+    val headers = new Headers()
+    headers.set("Connection", "close")
+    ResponseHeadWriter.write(output, "GET", "HTTP/1.1", code, -1, headers)
+    output.flush()
+  }
+
+  private def release(socket: Socket): Unit = {
+    closeSocket(socket)
+    lifecycle.synchronized {
+      active.remove(socket)
+      connections.remove(socket)
+      lifecycle.notifyAll()
+    }
+  }
+
+  private def hasOtherHandlers(self: Thread): Boolean = {
+    val iterator = active.values().iterator()
+    while (iterator.hasNext()) if (iterator.next() ne self) return true
+    false
+  }
+
+  private def closeSocket(socket: Socket): Unit = try socket.close() catch { case _: IOException => () }
+
+  private def closeListener(): Unit = if (listener != null) {
+    try listener.close() catch { case _: IOException => () }
+  }
+}

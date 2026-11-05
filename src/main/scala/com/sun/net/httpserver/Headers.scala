@@ -11,8 +11,9 @@ import java.util.{ArrayList, Collection, Iterator, LinkedHashMap, List, Map, Set
  * Null keys and values are retained because they are part of the JDK 8
  * contract for this class; a null key is not emitted by a server.
  */
-class Headers extends Map[String, List[String]] {
-  private val entries = new LinkedHashMap[String, List[String]]()
+class Headers private[httpserver] (private val entries: Map[String, List[String]])
+    extends Map[String, List[String]] {
+  def this() = this(new LinkedHashMap[String, List[String]]())
 
   override def size(): Int = entries.size()
 

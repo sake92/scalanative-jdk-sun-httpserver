@@ -7,9 +7,8 @@ import java.util.concurrent.Executor
 /**
  * The abstract instance contract for a blocking HTTP server.
  *
- * Static provider factories and the concrete socket implementation belong to
- * the later server phase. This class exists now because `HttpContext` exposes
- * its owning server as part of the JDK 8 API.
+ * The default implementation uses blocking sockets and closes each connection
+ * after one exchange. Custom provider discovery and HTTPS remain deferred.
  */
 abstract class HttpServer protected () {
   @throws[IOException]
@@ -32,4 +31,16 @@ abstract class HttpServer protected () {
   def removeContext(context: HttpContext): Unit
 
   def getAddress(): InetSocketAddress
+}
+
+object HttpServer {
+  @throws[IOException]
+  def create(): HttpServer = new internal.BlockingHttpServer()
+
+  @throws[IOException]
+  def create(address: InetSocketAddress, backlog: Int): HttpServer = {
+    val server = create()
+    if (address != null) server.bind(address, backlog)
+    server
+  }
 }

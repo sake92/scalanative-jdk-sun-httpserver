@@ -3,19 +3,20 @@
 An Apache-2.0-licensed implementation of `com.sun.net.httpserver` for Scala
 Native, developed incrementally with synchronous, blocking I/O.
 
-The initial HTTP API classes, including `Headers`, `HttpPrincipal`, the
-JDK 8 authentication result values, `BasicAuthenticator`, and the
-handler/exchange/context/filter contracts, are implemented incrementally.
-`HttpServer` currently exposes its permanent abstract instance contract so
-contexts can retain their owning
-server; provider factories and socket behavior remain deferred to the server
-phase. Internal request-head parsing, body-framing validation, and fixed-length
-and chunked request input are implemented, along with fixed-length, chunked,
-and no-body response output. Internal response-head serialization validates
-headers and selects framing for HTTP/1.0, HTTP/1.1, HEAD and bodyless statuses.
-Socket serving and real exchanges remain deferred.
-The [implementation plan](PLAN.md) tracks the remaining HTTP API and
-server work.
+`HttpServer.create()` and `create(address, backlog)` provide a working blocking
+HTTP server with contexts, filters, Basic authentication, immutable request
+headers, wrapped streams and exchange attributes. Fixed-length and chunked
+request/response bodies, HEAD/bodyless responses and lazy `100 Continue` are
+implemented and tested over loopback sockets.
+
+This first server closes each connection after one exchange and does not drain
+unread bodies. The default executor runs handlers on the accept thread, so idle
+or slow clients serialize default work. Use `setExecutor` before `start` for
+concurrent dispatch; the caller owns that executor and must shut it down.
+`stop(delay)` allows active handlers a bounded grace period, then closes sockets
+and stops the accept thread. Arbitrary handlers must cooperate with interruption
+or closed sockets. Persistent connections and provider discovery remain deferred.
+The [implementation plan](PLAN.md) tracks remaining compatibility and server work.
 
 Requires JDK 17 or newer, sbt, and the
 [Scala Native toolchain](https://scala-native.org/en/stable/user/setup.html).
@@ -33,11 +34,11 @@ sbt 'testOnly org.scalanative.testsuite.httpserver.HeadersTest'
 Tests use Scala Native's JUnit plugin and compile to a native executable.
 Use `testFull` to run every test; sbt 2's `test` runs only tests without a
 cached passing result, so it can report zero tests even after `clean`.
-The Native suite contains 108 JUnit tests: 32 shared header, principal, filter,
+The Native suite contains 119 JUnit tests: 32 shared header, principal, filter,
 and authentication contracts, six Native-only baseline checks, one socket
 smoke test, 12 internal request-head parser tests, 11 fixed-length input tests,
 14 chunked input tests, 12 fixed-length/no-body output tests, 9 chunked output tests,
-and 11 response-head writer tests.
+11 response-head writer tests, and 11 server integration tests.
 The isolated `jvm-reference` build runs the same 32 direct JUnit
 contract tests against the real JDK implementation without loading this library's
 production classes. The shared JUnit sources are registered in the JVM project's

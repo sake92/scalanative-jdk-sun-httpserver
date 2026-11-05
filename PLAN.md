@@ -14,8 +14,10 @@ Repository setup is
 complete; headers, principals, authentication, the initial exchange/context/
 filter API, request-head parsing/framing validation, and fixed-length/chunked
 request input, fixed-length/chunked/no-body response output, and response-head
-serialization/framing selection are implemented. Concrete server and exchange
-integration is next.
+serialization/framing selection are implemented, along with working default
+server factories, contexts and concrete exchanges. The server currently closes
+each connection after one exchange. Persistence and bounded unread-body draining
+are next.
 
 The initial compatibility target is the JDK 8-era public HTTP API. Use current
 published API documentation to identify subsequent changes, without silently
@@ -158,9 +160,10 @@ shared chain tests use a non-null inert exchange.
 
 The API step also owns the complete JDK 8 `Authenticator` result hierarchy and
 the permanent abstract instance contract of `HttpServer`, because
-`HttpContext` exposes both types. `HttpServer` provider factories and concrete
-socket behavior remain deferred to section 5; no throwing public placeholders
-are used. `Authenticator` and `Authenticator.Result` have public constructors,
+`HttpContext` exposes both types. Default `HttpServer` factories and concrete
+socket behavior are now implemented in section 5; custom provider discovery
+remains deferred. No throwing public placeholders are used.
+`Authenticator` and `Authenticator.Result` have public constructors,
 matching the JDK 8 declarations. `HttpExchange.getResponseCode()` is part of the JDK 8 baseline;
 newer `Request` and `AutoCloseable` additions are deferred.
 
@@ -337,9 +340,10 @@ request. Fixed-length and chunked request input are also complete, including
 chunk extensions, trailer syntax validation/discarding, and retention of
 following-request bytes. Fixed-length and chunked response output are also
 complete, and no-body output reuses the fixed-length writer with length zero.
-Stream primitives are complete; the next separately requested step is concrete
-server/exchange integration in section 5. Response framing selection for HEAD
-and bodyless statuses, plus `100 Continue`, belongs to that integration phase.
+Stream primitives and their first concrete server/exchange integration are
+complete. HEAD/bodyless response selection and lazy `100 Continue` are tested
+through real exchanges in section 5. Persistence and bounded unread-body draining
+are the next separately requested slice.
 
 Support Content-Length and chunked requests, chunk extensions/trailers as
 appropriate, and retained bytes between exchanges. Bound line/header sizes and
@@ -353,6 +357,40 @@ bodyless status codes, partial reads, over/under-writing, flush/close, and error
 Use byte-level tests with deliberately fragmented input and multiple messages.
 
 ### 5. HttpServer and real exchanges
+
+Completed slice: first concrete server/context/exchange integration. These types
+depend on one another and are implemented together so factories return a working
+server rather than placeholders. Initial policy: one exchange per connection,
+always `Connection: close`; persistence and bounded unread-body draining remain
+separate later slices. Checklist before implementation, `HttpServerTest`:
+
+| Behavior | Expected result | Test |
+| --- | --- | --- |
+| Factories/binding | Unbound and port-zero factories, delayed bind, duplicate/failed bind, terminal lifecycle and argument checks | `factoriesAndLifecycle` |
+| Contexts/routing | Literal raw-path longest prefix, case and percent encoding preserved, query excluded; unknown/removed routes 404, deferred handler assignment works | `routesLiteralPathsAndUpdatesContexts` |
+| Real framing | Fixed/chunked requests reach handlers; fixed/chunked/no-body/HTTP1.0 outputs work; HEAD/bodyless statuses emit no payload | `servesRequestAndResponseFraming` |
+| Read-only request headers | Reject basic/default map mutations, list/view/entry/iterator mutations; response headers remain writable | `requestHeadersAreDeeplyReadOnly` |
+| Filters/attributes/wrapping | Real filter order, inherited context attributes and per-exchange overrides, null handling, wrapped streams and exception propagation boundaries | `filtersAttributesAndWrappedStreams` |
+| Authentication | Retry/failure bypass handler, success supplies principal; authenticator replacement/removal takes effect | `authenticatesRealExchanges` |
+| Continue | Emit 100 only on first body read after authentication; unsupported expectations get 417; early final responses never emit 100 | `handlesExpectContinue` |
+| Failure boundaries | Malformed heads/bodies, handler failures, repeated headers, response over/under-writes and disconnects do not corrupt later connections | `isolatesProtocolAndHandlerFailures` |
+| Executor ownership | Dispatch uses supplied executor; rejection closes connection; stop never shuts caller executor down | `usesCallerExecutorWithoutOwningIt` |
+| Stop | Close idle/header/body reads, reject queued work after stop, allow active handlers a bounded grace period, preserve interrupts and terminal state | `stopClosesBlockedConnections`, `stopHonorsGraceAndCallerOwnership` |
+
+Default dispatch runs synchronously on the owned accept thread, matching the
+baseline's simple default executor; slow/idle clients serialize default work.
+Custom executors are caller-owned and control concurrency. Accepted sockets are
+registered before dispatch. Stop closes intake and idle/queued connections,
+waits up to the requested delay for active handlers, closes remaining sockets,
+interrupts the owned accept thread and joins it within a separate 500 ms cleanup
+budget. It does not interrupt/shut down caller executor threads. Arbitrary user
+code that ignores both interruption and closed sockets cannot be forcibly
+terminated; incomplete owned-thread cleanup is reported to stderr. Socket reads
+have no idle timeout in this slice; stop owns their cancellation by shutdown/close.
+No automatic unread-body draining, asynchronous handler continuation, ServiceLoader
+SPI discovery, TLS, CONNECT tunnels, upgrades or manually emitted final 1xx
+responses are introduced. Attributes are per-exchange overrides with context
+fallback. HEAD/no-body payload writes are rejected rather than silently discarded.
 
 Completed slice: response-head serialization and framing selection, the missing
 wire boundary needed before a concrete exchange can use the completed body
@@ -390,10 +428,9 @@ it does not construct body streams, dispatch requests, manage connection reuse,
 send 100 Continue automatically, or provide tunnels/upgrades. Successful CONNECT
 and 101 upgrades remain unsupported and are rejected before output. HTTP/1.0
 close-delimited output will be connected to the exchange in the server slice.
-The next slice must wire concrete server/context/exchange behavior into a real
-request-to-response path, with port-zero binding, context dispatch, stream
-selection and terminal shutdown tested over sockets. Do not add public factory
-placeholders before this path works.
+Concrete server/context/exchange behavior is now wired into a real request-to-
+response path, with port-zero binding, context dispatch, stream selection and
+terminal shutdown tested over sockets. Default factories return working servers.
 
 Implement `HttpServer` creation/binding, contexts, executor selection, start,
 address lookup, and stop, backed by the framing engine and concrete exchanges.
@@ -511,14 +548,17 @@ and disconnect tests that higher-level clients hide.
 - [x] Chunked response output.
 - [x] No-body response output via the zero-length fixed-length writer.
 - [x] Response-head serialization, validation and framing selection.
-- [ ] Blocking server and real exchange/socket integration tests (next).
+- [x] Initial blocking server, contexts, real exchanges and socket integration tests.
+- [ ] HTTP persistence, pipelining and bounded unread-body draining (next).
+- [ ] Provider discovery and remaining lifecycle/compatibility audit.
 - [ ] Compatibility audit and upstream discussion.
 
 The shared header, principal, filter, and authentication JUnit contracts run as 32
 tests on the JVM reference project and, together with the seven Native-only
 baseline/socket tests, 12 request-head parser tests, 11 fixed-length input
 tests, 14 chunked input tests, 12 fixed-length/no-body output tests, and 9 chunked
-output tests, and 11 response-head writer tests, as 108 tests on Native.
+output tests, 11 response-head writer tests and 11 server integration tests,
+as 119 tests on Native.
 Internal engine tests use the engine package to access package-scoped code;
 they stay in the Native test tree and are not shared with the JDK reference.
 Run `testFull` (and `+testFull`
@@ -553,22 +593,50 @@ Primary references for these decisions:
 - https://www.rfc-editor.org/rfc/rfc7617.html
 - https://docs.oracle.com/javase/8/docs/jre/api/net/httpserver/spec/com/sun/net/httpserver/HttpExchange.html#getResponseBody--
 - https://docs.oracle.com/javase/8/docs/api/java/io/OutputStream.html
+- https://docs.oracle.com/javase/8/docs/jre/api/net/httpserver/spec/com/sun/net/httpserver/HttpServer.html
+- https://docs.oracle.com/javase/8/docs/jre/api/net/httpserver/spec/com/sun/net/httpserver/HttpContext.html
 
 Latest implementation validation (2026-11-05, Linux, Temurin JDK 21.0.10):
 
 | Target | Command | Result on Scala 2.12.21, 2.13.18, and 3.9.0 |
 | --- | --- | --- |
-| Native response-head writer slice | `sbt -batch +testFull` | 108 tests passed per version, zero failures |
+| Native server integration slice | `sbt -batch +testFull` | 119 tests passed per version, zero failures |
+| Native response-head writer slice (previous) | `sbt -batch +testFull` | 108 tests passed per version, zero failures |
 | Native no-body output slice (previous) | `sbt -batch +testFull` | 97 tests passed per version, zero failures |
 | Native chunked output slice (previous) | `sbt -batch +testFull` | 95 tests passed per version, zero failures |
 | Native fixed-length output slice (previous) | `sbt -batch +testFull` | 86 tests passed per version, zero failures |
 | Native chunked input slice (previous) | `sbt -batch +testFull` | 76 tests passed per version, zero failures |
 | Native fixed-length input slice (previous) | `sbt -batch +testFull` | 62 tests passed per version, zero failures |
 | Native request-head slice (previous) | `sbt -batch +testFull` | 51 tests passed per version, zero failures |
-| JVM reference (previous API slice) | `sbt -batch +testFull` in `jvm-reference/` | 32 tests passed per version, zero failures |
+| JVM reference (rerun for server slice) | `sbt -batch +testFull` in `jvm-reference/` | 32 shared tests passed per version, zero failures |
 | Refined shared tests (previous API slice) | Cross-version `+testOnly` for FilterTest and BasicAuthenticatorTest in `jvm-reference/` | 5 filter and 10 authentication tests passed per version after subsequent test refinements |
 
-The response-head writer slice adds 11 Native-only tests. `sbt -batch testFull`
+The server integration slice adds 11 Native-only tests. Focused
+`testOnly org.scalanative.testsuite.httpserver.HttpServerTest` passed all 11 on
+Scala 3.9.0. `sbt -batch +testFull` passed all 119 Native tests on each configured
+Scala version, and `sbt -batch +testFull` in `jvm-reference/` reran all 32 shared
+contracts successfully on each version. The JVM matrix does not include the new
+server tests, so this is Native server proof plus unchanged shared API reference
+coverage, not a full server comparison with the JDK.
+
+Regression evidence: the real immutable-header test initially accepted
+`entrySet().iterator().next().setValue(...)` through Native's unmodifiable-map
+wrapper. `ReadOnlyHeaders` now exposes immutable entry objects as well as
+unmodifiable map/list views; the same test passes. Request map default mutation
+methods reject even no-op operations. Endpoint tests compare host-address/port
+fields: Native equality reported identically rendered local endpoints unequal,
+while those address fields matched. No production address workaround was added.
+
+Factories, literal context routing, filters/stream wrapping, Basic authentication,
+lazy 100 Continue, fixed/chunked/no-body output, malformed requests, handler
+failures, over/under-writing, executor rejection/ownership and stop during pending
+headers/body reads or active/queued handlers are tested over loopback sockets.
+All current responses close the connection; keep-alive/pipelining and unread-body
+draining are not implemented by this slice. No dependencies or adapted sources
+were added. `git diff --check` passed; Scala 3 wildcard deprecation and existing
+GNU-stack linker warnings remained non-failing.
+
+The previous response-head writer slice added 11 Native-only tests. `sbt -batch testFull`
 passed 108 tests on Scala 3.9.0; `sbt -batch +testFull` then passed 108 tests
 on each configured Scala version. This includes exact wire framing, method/
 status suppression, HTTP/1.0 close-delimited selection, pre-emission rejection
@@ -578,7 +646,7 @@ The initial Native link failed on unavailable java.text/locale/timezone APIs;
 the final implementation uses a dependency-free UTC formatter and all checks
 passed. No shared API or JVM-reference tests changed or were rerun. Request-head
 and trailer tests still pass with shared field-value validation. No actual
-server/handler dispatch is implemented yet. `git diff --check` passed; existing
+server/handler dispatch was implemented by that slice. `git diff --check` passed; existing
 GNU-stack linker warnings remained non-failing.
 
 The previous no-body output slice reuses `FixedLengthOutputStream(output, 0)` with no
@@ -642,6 +710,6 @@ sbt's read-only cache. A scoped Native clean followed by `+testFull` resolved th
 in both Headers and BasicAuthenticator work. Use `testFull` for full-suite proof:
 sbt 2's `test` can skip cached passing tests, even after clean.
 
-Concrete exchange/authenticator integration, immutable request headers, socket
-serving, direct mutable-realm extension coverage, and macOS/Windows validation
-remain deferred as described above. No upstream readiness or acceptance is claimed.
+Persistent connections, bounded unread-body draining, provider discovery, direct
+mutable-realm extension coverage, and macOS/Windows validation remain deferred
+as described above. No upstream readiness or acceptance is claimed.
