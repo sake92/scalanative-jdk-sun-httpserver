@@ -13,8 +13,8 @@ current decisions, behavior checklists, and validation results in this file.
 Repository setup is
 complete; headers, principals, authentication, the initial exchange/context/
 filter API, request-head parsing/framing validation, and fixed-length/chunked
-request input and fixed-length response output are implemented. Chunked response
-output is next; no-body responses and the concrete server remain deferred.
+request input and fixed-length/chunked response output are implemented. No-body
+response output is next; the concrete server remains deferred.
 
 The initial compatibility target is the JDK 8-era public HTTP API. Use current
 published API documentation to identify subsequent changes, without silently
@@ -165,6 +165,31 @@ newer `Request` and `AutoCloseable` additions are deferred.
 
 ### 4. Blocking HTTP framing and streams
 
+Completed slice: chunked response output. Behavior checklist (written before
+implementation), all in `ChunkedOutputStreamTest`:
+
+| Behavior | Expected result | Test |
+| --- | --- | --- |
+| Wire encoding | Each nonempty write emits hexadecimal length, CRLF, exact payload and CRLF; respect array slices and low eight bits of single-byte writes | `encodesWritesWithHexSizes` |
+| Empty operations | Zero-length writes emit nothing, including no premature zero chunk; empty response ends only on close | `emptyWritesEmitNothingAndEmptyCloseTerminates` |
+| Flush | Flush buffered sink without emitting a terminator or reporting completion; subsequent writes remain valid | `flushDoesNotTerminateTheBody` |
+| Close/ownership | Write one terminal chunk and flush, never close the sink; repeated close is a no-op, writes/flush after close fail, next response can use sink | `closePreservesConnectionOwnership` |
+| Arguments | Null sink/arrays and invalid/overflowing ranges fail without output or poisoning a valid stream | `rejectsInvalidArgumentsWithoutEmittingBytes` |
+| Write failure | Inject IOException at every byte of chunk header, payload and CRLF; preserve exception and block all retries or termination output | `writeFailuresAreTerminal` |
+| Termination failure | IOException at every byte of final chunk leaves completion false; close is not retried | `terminationFailuresAreTerminal` |
+| Flush failure | Explicit/final flush errors are terminal, preserve the original exception, and prevent completion | `flushFailuresAreTerminal` |
+| Decoder interoperability | Decode varying single/bulk write boundaries and payload sizes with the real chunked input stream; retain next response bytes | `roundTripsAcrossWriteBoundaries` |
+
+Each nonempty write becomes one chunk, with no body buffering or copying of
+bulk payloads. This favors a small streaming primitive; callers making many
+small writes may buffer above it. Flush only forwards to the sink. Close emits
+`0\r\n\r\n`, flushes, then marks completion. No response extensions or trailers
+are emitted. As with fixed-length output, sink ownership, exchange cleanup,
+headers/framing selection, and connection abort after any terminal failure
+belong to the later exchange/server layer. No concurrent writes or retries
+after partial output are supported. Repeated close does nothing even after a
+failed first close.
+
 Completed slice: fixed-length response output. Behavior checklist (written before
 implementation), all in `FixedLengthOutputStreamTest`:
 
@@ -290,8 +315,10 @@ head and framing decision, with byte-level tests for fragmented input, limits,
 ambiguous framing, and preservation of bytes belonging to the body or next
 request. Fixed-length and chunked request input are also complete, including
 chunk extensions, trailer syntax validation/discarding, and retention of
-following-request bytes. Fixed-length response output is also complete. The next
-separately requested slice is chunked response output, followed by no-body output.
+following-request bytes. Fixed-length and chunked response output are also
+complete. The next separately requested slice is no-body output. Response
+framing selection for HEAD and bodyless statuses still belongs to the concrete
+exchange phase.
 
 Support Content-Length and chunked requests, chunk extensions/trailers as
 appropriate, and retained bytes between exchanges. Bound line/header sizes and
@@ -419,14 +446,16 @@ and disconnect tests that higher-level clients hide.
 - [x] Fixed-length request input.
 - [x] Chunked request input.
 - [x] Fixed-length response output.
-- [ ] Chunked response output (next) and no-body output.
+- [x] Chunked response output.
+- [ ] No-body response output (next).
 - [ ] Blocking server and socket integration tests.
 - [ ] Compatibility audit and upstream discussion.
 
 The shared header, principal, filter, and authentication JUnit contracts run as 32
 tests on the JVM reference project and, together with the seven Native-only
 baseline/socket tests, 12 request-head parser tests, 11 fixed-length input
-tests, 14 chunked input tests, and 10 fixed-length output tests, as 86 tests on Native.
+tests, 14 chunked input tests, 10 fixed-length output tests, and 9 chunked output
+tests, as 95 tests on Native.
 Internal engine tests use the engine package to access package-scoped code;
 they stay in the Native test tree and are not shared with the JDK reference.
 Run `testFull` (and `+testFull`
@@ -466,14 +495,25 @@ Latest implementation validation (2026-11-05, Linux, Temurin JDK 21.0.10):
 
 | Target | Command | Result on Scala 2.12.21, 2.13.18, and 3.9.0 |
 | --- | --- | --- |
-| Native fixed-length output slice | `sbt -batch +testFull` | 86 tests passed per version, zero failures |
+| Native chunked output slice | `sbt -batch +testFull` | 95 tests passed per version, zero failures |
+| Native fixed-length output slice (previous) | `sbt -batch +testFull` | 86 tests passed per version, zero failures |
 | Native chunked input slice (previous) | `sbt -batch +testFull` | 76 tests passed per version, zero failures |
 | Native fixed-length input slice (previous) | `sbt -batch +testFull` | 62 tests passed per version, zero failures |
 | Native request-head slice (previous) | `sbt -batch +testFull` | 51 tests passed per version, zero failures |
 | JVM reference (previous API slice) | `sbt -batch +testFull` in `jvm-reference/` | 32 tests passed per version, zero failures |
 | Refined shared tests (previous API slice) | Cross-version `+testOnly` for FilterTest and BasicAuthenticatorTest in `jvm-reference/` | 5 filter and 10 authentication tests passed per version after subsequent test refinements |
 
-The fixed-length output slice adds 10 Native-only tests. All 86 tests passed
+The chunked output slice adds 9 Native-only tests. All 95 tests passed on each
+configured Scala version with `sbt -batch +testFull`. Exact wire assertions cover
+hexadecimal lengths, payload bytes, delimiters, zero-length writes and a single
+final chunk. Failure injection covers every emitted byte of chunk framing and
+termination, plus explicit/final flush. The existing chunked input decoder
+recovers mixed binary writes and leaves following-response bytes intact. Close
+flushes without closing the caller-owned sink. No shared API or JVM-reference
+tests changed, so JVM reference tests were not rerun for this slice. Existing
+GNU-stack linker warnings remained non-failing; `git diff --check` passed.
+
+The previous fixed-length output slice added 10 Native-only tests. All 86 tests passed
 on each configured Scala version with `sbt -batch +testFull`. The new cases
 cover exact bytes, atomic rejection of excess writes, insufficient output on
 close, buffered flush/close, sink ownership, long lengths, invalid arguments,
