@@ -7,6 +7,62 @@ import org.junit.Assert._
 import org.junit.Test
 
 class FixedLengthOutputStreamTest {
+  @Test def noBodyCloseFlushesHeadersWithoutEmittingFraming(): Unit = {
+    val sink = new RecordingOutputStream()
+    val connection = new BufferedOutputStream(sink, 128)
+    try {
+      val headers = "HTTP/1.1 204 No Content\r\n\r\n".getBytes(ISO_8859_1)
+      connection.write(headers)
+      val body = new FixedLengthOutputStream(connection, 0)
+      body.write(new Array[Byte](0))
+      assertEquals(0, sink.size())
+      assertFalse(body.isComplete)
+      body.close()
+      body.close()
+      assertTrue(body.isComplete)
+      assertArrayEquals(headers, sink.toByteArray())
+      assertEquals(1, sink.flushes)
+      assertEquals(0, sink.closes)
+      assertThrows(classOf[IOException], () => body.write('x'))
+      assertThrows(classOf[IOException], () => body.flush())
+
+      val nextHeaders = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n".getBytes(ISO_8859_1)
+      connection.write(nextHeaders)
+      val next = new FixedLengthOutputStream(connection, 2)
+      next.write("ok".getBytes(ISO_8859_1))
+      next.close()
+      val expected = headers ++ nextHeaders ++ "ok".getBytes(ISO_8859_1)
+      assertArrayEquals(expected, sink.toByteArray())
+      assertTrue(next.isComplete)
+      assertEquals(2, sink.flushes)
+      assertEquals(0, sink.closes)
+    } finally connection.close()
+  }
+
+  @Test def noBodyWritesFailWithoutEmittingPayload(): Unit = {
+    for (mode <- List("single", "bulk", "slice")) {
+      val sink = new RecordingOutputStream()
+      val headers = "HTTP/1.1 204 No Content\r\n\r\n".getBytes(ISO_8859_1)
+      sink.write(headers)
+      val body = new FixedLengthOutputStream(sink, 0)
+      val error = assertThrows(classOf[IOException], () => {
+        if (mode == "single") body.write('x')
+        else if (mode == "bulk") body.write("xy".getBytes(ISO_8859_1))
+        else body.write("_xy_".getBytes(ISO_8859_1), 1, 2)
+      })
+      assertArrayEquals(headers, sink.toByteArray())
+      assertFalse(body.isComplete)
+      assertSame(error, assertThrows(classOf[IOException], () => body.write('y')))
+      assertSame(error, assertThrows(classOf[IOException], () => body.flush()))
+      assertSame(error, assertThrows(classOf[IOException], () => body.close()))
+      body.close()
+      assertFalse(body.isComplete)
+      assertEquals(0, sink.flushes)
+      assertEquals(0, sink.closes)
+      assertArrayEquals(headers, sink.toByteArray())
+    }
+  }
+
   @Test def writesExactlyTheDeclaredBody(): Unit = {
     val sink = new ByteArrayOutputStream()
     val body = new FixedLengthOutputStream(sink, 5)
@@ -215,7 +271,7 @@ class FixedLengthOutputStreamTest {
   }
 
   @Test def flushFailuresAreTerminal(): Unit = {
-    for (mode <- List("flush", "close")) {
+    for (mode <- List("flush", "close"); length <- List(0, 1)) {
       val error = new IOException("sink flush failed")
       var broken = true
       var flushes = 0
@@ -226,8 +282,8 @@ class FixedLengthOutputStreamTest {
         }
         override def close(): Unit = throw new AssertionError("Sink is caller-owned")
       }
-      val body = new FixedLengthOutputStream(sink, 1)
-      body.write('a')
+      val body = new FixedLengthOutputStream(sink, length)
+      if (length == 1) body.write('a')
       assertSame(error, assertThrows(classOf[IOException], () => {
         if (mode == "flush") body.flush() else body.close()
       }))
@@ -238,7 +294,8 @@ class FixedLengthOutputStreamTest {
       if (mode == "flush") assertSame(error, assertThrows(classOf[IOException], () => body.close()))
       body.close()
       assertEquals(1, flushes)
-      assertArrayEquals(Array[Byte](97), sink.toByteArray())
+      val expected = if (length == 1) Array[Byte](97) else new Array[Byte](0)
+      assertArrayEquals(expected, sink.toByteArray())
       assertFalse(body.isComplete)
     }
   }

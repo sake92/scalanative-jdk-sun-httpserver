@@ -10,8 +10,8 @@ handler/exchange/context/filter contracts, are implemented incrementally.
 contexts can retain their owning
 server; provider factories and socket behavior remain deferred to the server
 phase. Internal request-head parsing, body-framing validation, and fixed-length
-and chunked request input are implemented, along with fixed-length and chunked
-response output. No-body output and socket serving remain deferred.
+and chunked request input are implemented, along with fixed-length, chunked,
+and no-body response output. Socket serving and real exchanges remain deferred.
 The [implementation plan](PLAN.md) tracks the remaining HTTP API and
 server work.
 
@@ -31,10 +31,10 @@ sbt 'testOnly org.scalanative.testsuite.httpserver.HeadersTest'
 Tests use Scala Native's JUnit plugin and compile to a native executable.
 Use `testFull` to run every test; sbt 2's `test` runs only tests without a
 cached passing result, so it can report zero tests even after `clean`.
-The Native suite contains 95 JUnit tests: 32 shared header, principal, filter,
+The Native suite contains 97 JUnit tests: 32 shared header, principal, filter,
 and authentication contracts, six Native-only baseline checks, one socket
 smoke test, 12 internal request-head parser tests, 11 fixed-length input tests,
-14 chunked input tests, 10 fixed-length output tests, and 9 chunked output tests.
+14 chunked input tests, 12 fixed-length/no-body output tests, and 9 chunked output tests.
 The isolated `jvm-reference` build runs the same 32 direct JUnit
 contract tests against the real JDK implementation without loading this library's
 production classes. The shared JUnit sources are registered in the JVM project's

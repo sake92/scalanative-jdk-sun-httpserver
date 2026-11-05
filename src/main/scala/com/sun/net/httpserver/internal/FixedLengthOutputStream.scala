@@ -3,6 +3,8 @@ package com.sun.net.httpserver.internal
 import java.io.{IOException, OutputStream}
 
 /** Writes an exact response body to a caller-owned connection stream.
+  * Length zero also serves as strict no-body output: nonempty writes fail,
+  * and close emits no payload or framing bytes.
   * Successful close flushes the sink without closing it. A failure requires
   * the connection owner to abort the exchange and close the connection.
   */
