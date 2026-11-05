@@ -13,8 +13,9 @@ current decisions, behavior checklists, and validation results in this file.
 Repository setup is
 complete; headers, principals, authentication, the initial exchange/context/
 filter API, request-head parsing/framing validation, and fixed-length/chunked
-request input and fixed-length/chunked/no-body response output are implemented.
-Concrete server and exchange integration is next.
+request input, fixed-length/chunked/no-body response output, and response-head
+serialization/framing selection are implemented. Concrete server and exchange
+integration is next.
 
 The initial compatibility target is the JDK 8-era public HTTP API. Use current
 published API documentation to identify subsequent changes, without silently
@@ -353,6 +354,47 @@ Use byte-level tests with deliberately fragmented input and multiple messages.
 
 ### 5. HttpServer and real exchanges
 
+Completed slice: response-head serialization and framing selection, the missing
+wire boundary needed before a concrete exchange can use the completed body
+streams. Keep it internal; no public server factories or simulated exchanges
+are added yet. Checklist (before implementation), `ResponseHeadWriterTest`:
+
+| Behavior | Expected result | Test |
+| --- | --- | --- |
+| Status/header bytes | Emit HTTP/1.x status line, ordered repeated Latin-1 fields and exactly one blank line, without flushing/closing sink | `serializesStatusAndRepeatedFields` |
+| Framing | Positive length replaces CL/removes TE; zero selects HTTP/1.1 chunking; negative selects no body with CL 0 | `selectsAndNormalizesFraming` |
+| HEAD/304 metadata | No body/TE; positive length is representation metadata; nonpositive preserves a valid explicit CL | `headAndNotModifiedSuppressBody` |
+| Bodyless statuses | 1xx/204 suppress CL and TE; 205 suppresses body and uses CL 0 regardless of supplied length | `bodylessStatusesOverrideRequestedLength` |
+| HTTP/1.0 | Fixed/no-body work normally; unknown length is close-delimited with Connection close and no TE/CL | `http10NeverUsesChunking` |
+| Date | Add a GMT HTTP date when absent; preserve caller Date | `addsDateWhenAbsent` |
+| UTC calendar | Locale-independent four-digit UTC dates, including negative epochs, leap centuries and date bounds | `formatsUtcDatesAcrossCalendarBoundaries` |
+| Validation | Reject injection, controls, invalid/non-Latin-1 fields, nulls and invalid arguments before output or header-map mutation | `rejectsInvalidHeadsBeforeEmission` |
+| Representation length | Reject repeated, negative, nondecimal or overflowing preserved CL before output | `rejectsInvalidRepresentationLengths` |
+| Sink failure | Propagate exact IOException even after partial header output; caller must abort, never retry | `propagatesSinkFailures` |
+| Real wire | Serialize successive heads/body bytes over a loopback socket with finite timeouts and preserve boundaries | `writesResponsesOverLoopback` |
+
+The writer validates a private header snapshot, normalizes framing fields,
+then updates the caller's response Headers and writes the head. Failed input
+validation leaves both headers and output unchanged. I/O failure can leave a
+partial head and normalized headers; the future exchange must mark response
+commit before attempting output and close the connection on failure. Unknown
+valid status codes use an empty reason phrase. HEAD/304 positive lengths are
+representation metadata; 1xx/204/205 force the status-specific no-body rules.
+Date is generated unless supplied. Native 0.5.12 lacks SimpleDateFormat,
+Locale.US and TimeZone; an initial Native link established those APIs are
+unavailable. Date generation therefore uses a small pure UTC calendar formatter,
+bounded to four-digit years and checked against independent epoch/date vectors.
+No dependency or platform-specific native calls were added.
+This slice returns a framing decision;
+it does not construct body streams, dispatch requests, manage connection reuse,
+send 100 Continue automatically, or provide tunnels/upgrades. Successful CONNECT
+and 101 upgrades remain unsupported and are rejected before output. HTTP/1.0
+close-delimited output will be connected to the exchange in the server slice.
+The next slice must wire concrete server/context/exchange behavior into a real
+request-to-response path, with port-zero binding, context dispatch, stream
+selection and terminal shutdown tested over sockets. Do not add public factory
+placeholders before this path works.
+
 Implement `HttpServer` creation/binding, contexts, executor selection, start,
 address lookup, and stop, backed by the framing engine and concrete exchanges.
 Provide read-only request header maps, including map views and Java Map default
@@ -468,6 +510,7 @@ and disconnect tests that higher-level clients hide.
 - [x] Fixed-length response output.
 - [x] Chunked response output.
 - [x] No-body response output via the zero-length fixed-length writer.
+- [x] Response-head serialization, validation and framing selection.
 - [ ] Blocking server and real exchange/socket integration tests (next).
 - [ ] Compatibility audit and upstream discussion.
 
@@ -475,7 +518,7 @@ The shared header, principal, filter, and authentication JUnit contracts run as 
 tests on the JVM reference project and, together with the seven Native-only
 baseline/socket tests, 12 request-head parser tests, 11 fixed-length input
 tests, 14 chunked input tests, 12 fixed-length/no-body output tests, and 9 chunked
-output tests, as 97 tests on Native.
+output tests, and 11 response-head writer tests, as 108 tests on Native.
 Internal engine tests use the engine package to access package-scoped code;
 they stay in the Native test tree and are not shared with the JDK reference.
 Run `testFull` (and `+testFull`
@@ -515,7 +558,8 @@ Latest implementation validation (2026-11-05, Linux, Temurin JDK 21.0.10):
 
 | Target | Command | Result on Scala 2.12.21, 2.13.18, and 3.9.0 |
 | --- | --- | --- |
-| Native no-body output slice | `sbt -batch +testFull` | 97 tests passed per version, zero failures |
+| Native response-head writer slice | `sbt -batch +testFull` | 108 tests passed per version, zero failures |
+| Native no-body output slice (previous) | `sbt -batch +testFull` | 97 tests passed per version, zero failures |
 | Native chunked output slice (previous) | `sbt -batch +testFull` | 95 tests passed per version, zero failures |
 | Native fixed-length output slice (previous) | `sbt -batch +testFull` | 86 tests passed per version, zero failures |
 | Native chunked input slice (previous) | `sbt -batch +testFull` | 76 tests passed per version, zero failures |
@@ -524,7 +568,20 @@ Latest implementation validation (2026-11-05, Linux, Temurin JDK 21.0.10):
 | JVM reference (previous API slice) | `sbt -batch +testFull` in `jvm-reference/` | 32 tests passed per version, zero failures |
 | Refined shared tests (previous API slice) | Cross-version `+testOnly` for FilterTest and BasicAuthenticatorTest in `jvm-reference/` | 5 filter and 10 authentication tests passed per version after subsequent test refinements |
 
-The no-body output slice reuses `FixedLengthOutputStream(output, 0)` with no
+The response-head writer slice adds 11 Native-only tests. `sbt -batch testFull`
+passed 108 tests on Scala 3.9.0; `sbt -batch +testFull` then passed 108 tests
+on each configured Scala version. This includes exact wire framing, method/
+status suppression, HTTP/1.0 close-delimited selection, pre-emission rejection
+of invalid headers without header-map changes, partial-write failures at every
+head byte, UTC date vectors and successive responses over real loopback sockets.
+The initial Native link failed on unavailable java.text/locale/timezone APIs;
+the final implementation uses a dependency-free UTC formatter and all checks
+passed. No shared API or JVM-reference tests changed or were rerun. Request-head
+and trailer tests still pass with shared field-value validation. No actual
+server/handler dispatch is implemented yet. `git diff --check` passed; existing
+GNU-stack linker warnings remained non-failing.
+
+The previous no-body output slice reuses `FixedLengthOutputStream(output, 0)` with no
 additional production class or runtime behavior change. Two new Native-only
 tests prove header-only wire output and rejection of forbidden payload writes;
 the existing flush-failure test now covers zero as well as positive lengths.

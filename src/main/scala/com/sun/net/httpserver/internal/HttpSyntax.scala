@@ -5,7 +5,7 @@ private[httpserver] object HttpSyntax {
     val colon = line.indexOf(':')
     if (colon <= 0 || !line.substring(0, colon).forall(isToken)) return None
     val value = line.substring(colon + 1)
-    if (!value.forall(c => c == '\t' || (c >= ' ' && c != 127))) return None
+    if (!isFieldValue(value)) return None
     Some((line.substring(0, colon), trimOws(value)))
   }
 
@@ -20,4 +20,7 @@ private[httpserver] object HttpSyntax {
   def isToken(c: Char): Boolean =
     (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
       (c >= '0' && c <= '9') || "!#$%&'*+-.^_`|~".indexOf(c) >= 0
+
+  def isFieldValue(value: String): Boolean =
+    value != null && value.forall(c => c == '\t' || (c >= ' ' && c != 127 && c <= 255))
 }
