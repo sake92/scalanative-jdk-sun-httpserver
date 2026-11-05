@@ -349,6 +349,7 @@ class HttpServerTest {
   }
 
   @Test def usesCallerExecutorWithoutOwningIt(): Unit = withServer { server =>
+    val connected = new CountDownLatch(1)
     val pool = Executors.newSingleThreadExecutor(new ThreadFactory {
       override def newThread(task: Runnable): Thread = new Thread(task, "test-http-worker")
     })
@@ -356,7 +357,11 @@ class HttpServerTest {
       val attempts = new AtomicInteger()
       server.setExecutor(new Executor {
         override def execute(task: Runnable): Unit = {
-          if (attempts.getAndIncrement() == 0) throw new RejectedExecutionException("first request rejected")
+          if (attempts.getAndIncrement() == 0) {
+            // Native's timed connect can report refusal if the peer closes before connect returns.
+            assertTrue(connected.await(3, TimeUnit.SECONDS))
+            throw new RejectedExecutionException("first request rejected")
+          }
           pool.execute(task)
         }
       })
@@ -364,7 +369,10 @@ class HttpServerTest {
         override def handle(exchange: HttpExchange): Unit = respond(exchange, Thread.currentThread().getName())
       })
       server.start()
-      withClient(server) { socket => assertConnectionClosed(socket) }
+      withClient(server) { socket =>
+        connected.countDown()
+        assertConnectionClosed(socket)
+      }
       assertEquals("test-http-worker", request(server).body)
       server.stop(0)
       assertFalse(pool.isShutdown())
@@ -372,6 +380,7 @@ class HttpServerTest {
         override def call(): Int = 42
       }).get(3, TimeUnit.SECONDS))
     } finally {
+      connected.countDown()
       pool.shutdownNow()
       assertTrue(pool.awaitTermination(3, TimeUnit.SECONDS))
     }
