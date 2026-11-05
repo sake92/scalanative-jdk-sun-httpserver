@@ -22,8 +22,9 @@ jobs:
           java-version: 17
           cache: sbt
       - uses: sbt/setup-sbt@v1
-      - run: sbt +testFull
-      - run: sbt ci-release
+      # sbt 2 keeps the server environment from its first invocation.
+      - name: Test and publish
+        run: sbt ';+testFull;ci-release'
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
