@@ -22,7 +22,7 @@ Use `setExecutor` before `start` for concurrent dispatch; the caller owns that
 executor and must shut it down.
 `stop(delay)` allows active handlers a bounded grace period, then closes sockets
 and stops the accept thread. Arbitrary handlers must cooperate with interruption
-or closed sockets. Provider discovery remains deferred.
+or closed sockets. Provider discovery is intentionally out of scope.
 The [compatibility inventory](COMPATIBILITY.md) lists the implemented API,
 unsupported features and validation limits. The [implementation plan](PLAN.md)
 tracks remaining work.
@@ -43,28 +43,43 @@ sbt 'testOnly org.scalanative.testsuite.httpserver.HeadersTest'
 Tests use Scala Native's JUnit plugin and compile to a native executable.
 Use `testFull` to run every test; sbt 2's `test` runs only tests without a
 cached passing result, so it can report zero tests even after `clean`.
-The Native suite contains 132 JUnit tests: 36 shared header, principal, filter,
-authentication and server contracts, six Native-only baseline checks, one socket
-smoke test, 12 internal request-head parser tests, 11 fixed-length input tests,
+The Native suite contains 135 JUnit tests: 45 shared header, principal, filter,
+authentication and server contracts, one socket smoke test, 12 internal request-head parser tests, 11 fixed-length input tests,
 14 chunked input tests, 12 fixed-length/no-body output tests, 9 chunked output tests,
 11 response-head writer tests, and 20 Native-only server integration tests.
-The isolated `jvm-reference` build runs the same 36 direct JUnit
+The isolated `jvm-reference` build runs the same 45 direct JUnit
 contract tests against the real JDK implementation without loading this library's
 production classes. The shared JUnit sources are registered in the JVM project's
 `Test` configuration and
 use Scala Native's pinned JUnit 4.13.2 and junit-interface 0.13.3 versions.
 There is no separate scenarios layer or hand-written test runner.
 
-The JDK 8 specification documents null keys and values for `Headers`; the
-Native implementation follows that baseline. Current JDK 21 reference runs
-reject some null map operations, so that observation is kept separate from the
-shared contract tests.
+To compare against an installed JDK 8 while sbt stays on JDK 21, set the test
+runtime for the isolated reference build:
 
-`BasicAuthenticator` uses the platform default charset and the JDK 8 Basic realm
-challenge. Newer JDKs can add a UTF-8 charset parameter. Native accepts Basic
-scheme names case-insensitively and returns Failure 401 for malformed credentials;
-JDK 21 instead rejects other casing and can throw parsing exceptions.
-Native also follows JDK 8's documented empty-realm NPE and filter null-exchange
-NPE, which differ from JDK 21 behavior. The newer charset constructor is deferred.
+```sh
+cd jvm-reference
+HTTP_SERVER_TEST_JAVA_HOME="$HOME/.sdkman/candidates/java/8.0.482-tem" \
+  sbt -batch ';++2.13.18;testFull'
+```
+
+Use `2.12.21` for the other Java 8-compatible Scala line. Scala 3.9.0 requires
+Java 17 or newer. All 45 shared tests pass on Temurin 8u482. Assertions explicitly
+distinguish measured JDK 8 and JDK 21 behavior, as described in
+[COMPATIBILITY.md](COMPATIBILITY.md). Without the environment variable, reference
+tests continue to use the build JDK.
+
+Runtime compatibility follows the tested Temurin 8u482 behavior where it differs
+from the published JDK 8 documentation. `HttpPrincipal.getName()` returns the
+username. Header bulk insertion preserves input spelling, while direct writes
+normalize names and reject null mappings/elements and invalid line breaks.
+Request headers remain immutable and response serialization validates every field.
+
+`BasicAuthenticator` accepts null/empty realms, uses the platform default charset
+and emits the JDK 8 Basic realm challenge. The scheme is case-sensitive;
+malformed credentials propagate parsing exceptions. Null exchanges pass through
+filter chains. Duplicate contexts retain registration order and can be removed
+independently. Newer-JDK differences are explicit in the shared reference tests.
+The newer authentication charset constructor is deferred.
 
 HTTPS and Sharaf integration are outside the current scope.

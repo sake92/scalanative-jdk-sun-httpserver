@@ -12,9 +12,7 @@ class HttpPrincipal(private val username: String, private val realm: String) ext
   if (username == null) throw new NullPointerException("username")
   if (realm == null) throw new NullPointerException("realm")
 
-  private val principalName = s"$realm:$username"
-
-  override def getName(): String = principalName
+  override def getName(): String = username
 
   def getUsername(): String = username
 

@@ -54,13 +54,31 @@ class HeadersTest {
     val additional = new LinkedHashMap[String, java.util.List[String]]()
     val values = new ArrayList[String]()
     values.add("second")
-    additional.put("X-Other", values)
+    additional.put("X-other", values)
     headers.putAll(additional)
 
     assertTrue(headers.containsKey("X-TRACE"))
     assertEquals(values, headers.get("x-other"))
     assertEquals(replacement, headers.remove("X-TRACE"))
     assertFalse(headers.containsKey("x-trace"))
+  }
+
+  @Test def bulkInsertionPreservesJdk8KeySpelling(): Unit = {
+    val headers = new Headers()
+    val source = new LinkedHashMap[String, java.util.List[String]]()
+    val values = new ArrayList[String]()
+    values.add("raw")
+    source.put("X-Other", values)
+    headers.putAll(source)
+    if (ReferenceRuntime.jdk8) {
+      assertTrue(headers.keySet().contains("X-Other"))
+      assertNull(headers.get("x-other"))
+      assertNull(headers.remove("X-Other"))
+      assertEquals(1, headers.size())
+    } else {
+      assertEquals(values, headers.get("x-other"))
+      assertEquals(values, headers.remove("X-Other"))
+    }
   }
 
   @Test def mapViewsRemainLive(): Unit = {

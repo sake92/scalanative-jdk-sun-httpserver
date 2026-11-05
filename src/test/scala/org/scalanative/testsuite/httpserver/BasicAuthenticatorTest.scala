@@ -160,13 +160,9 @@ class BasicAuthenticatorTest {
     assertChallenge(exchange)
   }
 
-  @Test def nullRealmIsRejected(): Unit = {
-    try {
-      new RecordingAuthenticator(null)
-      fail("expected NullPointerException")
-    } catch {
-      case _: NullPointerException => ()
-    }
+  @Test def nullRealmFollowsRuntimeBaseline(): Unit = {
+    if (ReferenceRuntime.jdk8) assertNull(new RecordingAuthenticator(null).getRealm())
+    else assertThrows(classOf[NullPointerException], () => new RecordingAuthenticator(null))
   }
 
   private def assertChallenge(exchange: HeaderExchange): Unit = {

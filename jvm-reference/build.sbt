@@ -5,8 +5,14 @@ lazy val root = project
   .in(file("."))
   .settings(
     name := "scalanative-httpserver-jvm-reference",
+    Test / fork := sys.env.contains("HTTP_SERVER_TEST_JAVA_HOME"),
+    Test / javaHome := sys.env.get("HTTP_SERVER_TEST_JAVA_HOME").map(file),
     Test / unmanagedSources := Seq(
       baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HeadersTest.scala",
+      baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/ReferenceRuntime.scala",
+      baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HeadersNullContractTest.scala",
+      baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/FilterNullContractTest.scala",
+      baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/BasicAuthenticatorBaselineTest.scala",
       baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HttpPrincipalTest.scala",
       baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/FilterTest.scala",
       baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver/HttpServerContractTest.scala",

@@ -21,7 +21,6 @@ object Filter {
 
     @throws[IOException]
     def doFilter(exchange: HttpExchange): Unit = {
-      if (exchange == null) throw new NullPointerException("exchange")
       if (iterator.hasNext()) iterator.next().doFilter(exchange, this)
       else handler.handle(exchange)
     }

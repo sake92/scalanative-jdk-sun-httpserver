@@ -2,7 +2,7 @@ package com.sun.net.httpserver.internal
 
 import java.io.{BufferedInputStream, BufferedOutputStream, EOFException, IOException}
 import java.net.{BindException, InetSocketAddress, ProtocolException, ServerSocket, Socket, SocketTimeoutException, URI}
-import java.util.{HashMap, HashSet, LinkedHashMap}
+import java.util.{ArrayList, HashMap, HashSet}
 import java.util.concurrent.Executor
 import scala.util.control.NonFatal
 import com.sun.net.httpserver.{Headers, HttpContext, HttpHandler, HttpServer}
@@ -10,7 +10,7 @@ import com.sun.net.httpserver.{Headers, HttpContext, HttpHandler, HttpServer}
 /** Blocking server with sequential exchanges on each persistent connection. */
 private[httpserver] final class BlockingHttpServer extends HttpServer {
   private val lifecycle = new Object()
-  private val contexts = new LinkedHashMap[String, ServerContext]()
+  private val contexts = new ArrayList[ServerContext]()
   private val connections = new HashSet[Socket]()
   private val active = new HashMap[Socket, Thread]()
   private var listener: ServerSocket = null
@@ -67,13 +67,16 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
 
   override def removeContext(path: String): Unit = lifecycle.synchronized {
     if (path == null) throw new NullPointerException("path")
-    if (contexts.remove(path) == null) throw new IllegalArgumentException("Unknown context")
+    val iterator = contexts.iterator()
+    while (iterator.hasNext()) {
+      if (iterator.next().getPath() == path) { iterator.remove(); return }
+    }
+    throw new IllegalArgumentException("Unknown context")
   }
 
   override def removeContext(context: HttpContext): Unit = lifecycle.synchronized {
     if (context == null) throw new NullPointerException("context")
-    if (contexts.get(context.getPath()) ne context) throw new IllegalArgumentException("Unknown context")
-    contexts.remove(context.getPath())
+    if (!contexts.remove(context)) throw new IllegalArgumentException("Unknown context")
   }
 
   override def stop(delay: Int): Unit = {
@@ -121,9 +124,8 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
     if (path == null) throw new NullPointerException("path")
     require(path.startsWith("/"), "Context path must start with /")
     if (stopped) throw new IllegalStateException("Server is stopped")
-    if (contexts.containsKey(path)) throw new IllegalArgumentException("Duplicate context")
     val context = new ServerContext(this, path, handler)
-    contexts.put(path, context)
+    contexts.add(context)
     context
   }
 
@@ -194,7 +196,7 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
       else Option(new URI(request.target).getRawPath()).getOrElse("")
       val context = lifecycle.synchronized {
         var selected: ServerContext = null
-        val iterator = contexts.values().iterator()
+        val iterator = contexts.iterator()
         while (iterator.hasNext()) {
           val candidate = iterator.next()
           if (path.startsWith(candidate.getPath()) &&

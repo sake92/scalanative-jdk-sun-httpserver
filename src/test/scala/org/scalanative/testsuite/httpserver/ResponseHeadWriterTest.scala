@@ -153,11 +153,19 @@ class ResponseHeadWriterTest {
       ("X", "x\u0100"), ("N\u00e4me", "x"), ("X", null), (null, "x"))
     fields.foreach { case (name, value) =>
       val headers = datedHeaders()
-      headers.set(name, value)
+      val raw = new java.util.LinkedHashMap[String, java.util.List[String]]()
+      val values = new ArrayList[String]()
+      values.add(value)
+      raw.put(name, values)
+      // JDK 8 bulk insertion bypasses direct-write checks; the wire writer
+      // must still validate every field before emitting any bytes.
+      headers.putAll(raw)
       assertInvalid(headers, "GET", "HTTP/1.1", 200)
     }
     val nullList = datedHeaders()
-    nullList.put("X", null)
+    val rawNull = new java.util.LinkedHashMap[String, java.util.List[String]]()
+    rawNull.put("X", null)
+    nullList.putAll(rawNull)
     assertInvalid(nullList, "GET", "HTTP/1.1", 200)
     for (status <- List(99, 600, -1, 101)) assertInvalid(datedHeaders(), "GET", "HTTP/1.1", status)
     for (version <- List("HTTP/2.0", "HTTP/1.1\r\nX", "http/1.1"))
@@ -254,6 +262,6 @@ class ResponseHeadWriterTest {
     val sink = new ByteArrayOutputStream()
     assertThrows(classOf[IllegalArgumentException], () => write(sink, method, version, status, -1, headers))
     assertEquals(0, sink.size())
-    assertEquals(before, headers)
+    assertEquals(before.entrySet(), headers.entrySet())
   }
 }

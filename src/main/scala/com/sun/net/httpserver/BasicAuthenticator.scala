@@ -10,8 +10,6 @@ import java.util.Base64
  * mutable realm and the single constructor preserve the JDK 8 API surface.
  */
 abstract class BasicAuthenticator(protected var realm: String) extends Authenticator {
-  if (realm == null || realm.isEmpty()) throw new NullPointerException("realm")
-
   def getRealm(): String = realm
 
   override def authenticate(exchange: HttpExchange): Authenticator.Result = {
@@ -21,30 +19,20 @@ abstract class BasicAuthenticator(protected var realm: String) extends Authentic
       new Authenticator.Retry(401)
     } else {
       val separator = authorization.indexOf(' ')
-      if (separator < 0 || !authorization.substring(0, separator).equalsIgnoreCase("Basic")) {
+      if (separator < 0 || authorization.substring(0, separator) != "Basic") {
         return new Authenticator.Failure(401)
       }
 
-      var tokenStart = separator + 1
-      while (tokenStart < authorization.length && authorization.charAt(tokenStart) == ' ') {
-        tokenStart += 1
-      }
-      val token = authorization.substring(tokenStart)
+      val token = authorization.substring(separator + 1)
       // Native's decoder tolerates surplus padding, so check its shape first.
       val paddingStart = token.indexOf('=')
       val paddingLength = if (paddingStart < 0) 0 else token.length - paddingStart
       if (paddingLength > 2 || (paddingLength > 0 && token.length % 4 != 0)) {
-        return new Authenticator.Failure(401)
+        throw new IllegalArgumentException("Invalid Base64 padding")
       }
-      // Only decoding failures are authentication failures; callback exceptions propagate.
-      val bytes = try Base64.getDecoder().decode(token)
-      catch {
-        case _: IllegalArgumentException => return new Authenticator.Failure(401)
-      }
+      val bytes = Base64.getDecoder().decode(token)
       val credentials = new String(bytes, Charset.defaultCharset())
       val colon = credentials.indexOf(':')
-      if (colon < 0) return new Authenticator.Failure(401)
-
       val username = credentials.substring(0, colon)
       val password = credentials.substring(colon + 1)
       if (checkCredentials(username, password)) {

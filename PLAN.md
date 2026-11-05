@@ -20,7 +20,9 @@ pipelining and bounded unread-body draining are implemented. The local API and
 lifecycle audit, including provider-discovery feasibility, is recorded in
 `COMPATIBILITY.md`. External platform validation and upstream assessment remain.
 
-The initial compatibility target is the JDK 8-era public HTTP API. Use current
+The compatibility target is the JDK 8-era public HTTP API and measured Temurin
+8u482 runtime behavior for the covered discrepancies. Runtime behavior takes
+precedence over contradictory JDK 8 documentation by the user's explicit decision. Use current
 published API documentation to identify subsequent changes, without silently
 expanding the baseline. HTTPS (`HttpsServer`, `HttpsExchange`, TLS configuration),
 newer convenience APIs such as `SimpleFileServer`, HTTP/2, WebSockets, and Sharaf
@@ -67,8 +69,8 @@ Primary contracts:
 - Private engine: an internal package with package-scoped implementation types.
 - JUnit tests: `src/test/scala/org/scalanative/testsuite/httpserver/`.
 - Shared contract tests are direct JUnit classes (`HeadersTest`,
-  `HttpPrincipalTest`, `FilterTest`, `BasicAuthenticatorTest`, and
-  `HttpServerContractTest`) with test
+  `HttpPrincipalTest`, `FilterTest`, `BasicAuthenticatorTest`, the runtime
+  compatibility suites, and `HttpServerContractTest`) with test
   bodies and `org.junit.Assert` assertions. The isolated JVM reference project registers
   those same sources in its `Test` configuration against the JDK classes; it
   does not load this library's production classes.
@@ -104,8 +106,10 @@ Distinguish specified behavior from version-specific JDK observations.
 The implementation normalizes ASCII header names and exposes the backing map's
 standard live key, value, and entry views. Retain iterator removal and entry
 `setValue` semantics; structural removal outside an active iterator previously
-broke continued iteration. JDK 8 documents null keys and values as accepted;
-Native covers this separately because the local JDK 21 rejects null operations.
+broke continued iteration. Direct writes reject null mappings and malformed line breaks as measured on
+Temurin 8u482. Bulk insertion preserves raw spelling without direct-write
+validation; response serialization separately validates all fields. Nullable
+reads and newer-JDK differences have shared runtime-aware coverage.
 
 ### 2. Principal and authentication values
 
@@ -116,30 +120,31 @@ and the documented encoding rules. Classes depending on `HttpExchange` wait
 until its declaration is available; avoid temporary fake public contracts.
 
 `BasicAuthenticator` retains the one-argument constructor and protected mutable
-realm from JDK 8. Credentials use the platform default charset. Native follows
-the documented NPE for an empty realm and emits the baseline Basic realm
-challenge without the newer charset parameter. Scheme names are case-insensitive;
-malformed Base64 or decoded credentials without a colon return Failure 401 rather
-than leaking parsing exceptions. These intentional differences from the JDK 21
-reference are covered separately in Native-only tests.
+realm from JDK 8. Credentials use the platform default charset. Native accepts
+null and empty realms at construction, emits the JDK 8 challenge, requires the
+exact Basic scheme spelling and retains the single payload separator. Invalid
+Base64 and missing credential colons throw their measured parsing exceptions.
+These choices follow the actual Temurin 8u482 runtime, superseding the earlier
+documentation-based behavior.
 
 Authentication uses the first Authorization value and splits decoded credentials
 at the first colon. Empty credential components and further password colons reach
 `checkCredentials`; credentials are checked for every exchange without caching,
-trimming, or Unicode normalization. Only Base64 decoding failures are converted
-to authentication failure; callback exceptions, including IllegalArgumentException,
-propagate unchanged. Native's decoder tolerates surplus padding, so authenticate
-checks padding shape first while accepting valid omitted padding.
+trimming, or Unicode normalization. Callback exceptions propagate unchanged.
+Native's decoder tolerates surplus padding, so authenticate checks its shape
+first and throws IAE for invalid padding while accepting valid omitted padding.
 
 Missing credentials produce Retry 401; rejected credentials produce Failure 401.
 Both replace the WWW-Authenticate challenge and preserve other response headers.
-Unsupported schemes or malformed encodings produce Failure 401 without calling
-the credential checker or mutating response headers. Shared challenge assertions
-accept only the exact baseline form or the newer UTF-8 form; Native-only checks
-require `Basic realm="users"`. The newer charset constructor and realm quoting
+Unsupported schemes produce Failure 401; malformed credentials propagate
+parsing exceptions. Neither path invokes the credential checker or changes
+response headers. Shared challenge assertions
+check the exact JDK 8 form or the observed JDK 21 UTF-8 advertisement for that
+runtime. The newer charset constructor and realm quoting
 validation remain deferred.
 
-`HttpPrincipal` equality and hashing use immutable constructor identity even when
+`HttpPrincipal.getName()` returns the username as on Temurin 8u482.
+Equality and hashing use immutable constructor identity even when
 subclasses override accessors. `toString` delegates to virtual `getName`. The JDK
 8 hash documentation has malformed parentheses; the interpretation as the Java
 String hash of `username + realm` matches the local JDK probe and shared tests.
@@ -477,10 +482,9 @@ Implement `HttpServer` creation/binding, contexts, executor selection, start,
 address lookup, and stop, backed by the framing engine and concrete exchanges.
 Provide read-only request header maps, including map views and Java Map default
 mutation methods; keep response headers writable. Cover this using real exchanges.
-Implement default provider behavior; add `spi.HttpServerProvider` discovery
-separately after checking SN's AOT-aware ServiceLoader constraints. HTTPS
-provider methods depend on deferred HTTPS types; do not invent TLS stubs merely
-to claim complete SPI coverage.
+Implement built-in server factories directly. Per the user's scope decision,
+`spi.HttpServerProvider` discovery is intentionally excluded. Its methods also
+depend on deferred HTTPS types; do not invent TLS stubs or a substitute SPI.
 
 Use an accept thread and blocking connection processing. Document how idle
 keep-alive connections consume workers in this first design. Preserve caller
@@ -495,9 +499,32 @@ stop during idle and active exchanges. No async networking engine is planned.
 
 ### 6. Compatibility and upstream assessment
 
+JDK 8 runtime alignment is now authorized by the user. The measured runtime,
+rather than contradictory documentation, is the target for these discrepancies.
+Keep shared assertions explicit about newer-JDK differences, as Scala Native's
+local `Platform`-aware JUnit tests do. Native reports Java specification 1.8.
+
+| Alignment behavior | Expected JDK 8 result | Regression coverage |
+| --- | --- | --- |
+| Principal rendering | Username only, preserving realm-based equality and hashing | `HttpPrincipalTest` |
+| Header bulk insertion | Preserve input key spelling, including its lookup quirk | `HeadersTest.bulkInsertionPreservesJdk8KeySpelling` |
+| Header validation | Direct writes reject null mappings/elements and malformed line breaks; nullable reads retain measured behavior | `HeadersNullContractTest` |
+| Basic construction and parsing | Null/empty realm accepted; exact Basic scheme and one separator; malformed credentials throw the measured exception | `BasicAuthenticatorTest`, `BasicAuthenticatorBaselineTest` |
+| Filter null exchange | Pass null through the chain; callback controls its handling | `FilterNullContractTest` |
+| Duplicate contexts | Preserve registrations in insertion order; select/remove each identity independently | `HttpServerContractTest.duplicateContextsFollowRuntimeBaseline` |
+
+Initial JDK 8 runtime comparison checklist (before alignment, 2026-11-05):
+
+| Behavior | Expected result | Check |
+| --- | --- | --- |
+| Reference runtime selection | sbt stays on JDK 21; forked tests execute on Temurin 8u482 | `Test / fork`, `Test / javaHome`, JVM property output |
+| Existing shared contracts | Preserve assertions and report every JDK 8 mismatch | `testFull` on Scala 2.12.21 and 2.13.18 |
+| Baseline-specific contracts | Check the six existing Native baseline tests against JDK 8 too | Additional reference sources in a temporary sbt session |
+| Scala 3 runtime boundary | Record Java 17 classfile requirement; do not claim a Scala 3/JDK 8 run | `javap -verbose` reports major version 61 |
+
 The local inventory is in [COMPATIBILITY.md](COMPATIBILITY.md): all declared HTTP
 methods, absent HTTPS/SPI/newer APIs, protocol restrictions, lifecycle policy,
-validation coverage and upstream assessment. The provider remains deferred:
+validation coverage and upstream assessment. Provider discovery is out of scope:
 its required `createHttpsServer` return type is outside the current scope.
 Native ServiceLoader has build-time provider selection, while arbitrary runtime
 provider class loading remains an unresolved requirement. No replacement public
@@ -555,11 +582,11 @@ and disconnect tests that higher-level clients hide.
 | Repeated header values | `add` appends values in insertion order | `HeadersTest.addAppendsValues` |
 | Header replacement | `set` replaces all values for a case-insensitive key | `HeadersTest.setReplacesValues` |
 | First header value | `getFirst` returns the first value, or null when absent | `HeadersTest.getFirstReturnsFirstValue` |
-| Header map operations | `put`, `putAll`, `remove`, and `containsKey` use header-key semantics | `HeadersTest.mapOperationsUseHeaderKeySemantics` |
+| Header map operations | Direct operations normalize names; canonical bulk entries remain retrievable | `HeadersTest.mapOperationsUseHeaderKeySemantics` |
 | Live header views | Key, value, and entry views observe insertion and support contract-preserving mutation/removal | `HeadersTest.mapViewsRemainLive` |
 | Header equality/hash | Equal case-insensitive mappings compare equal and have equal hashes | `HeadersTest.equalityAndHashCodeFollowMapContract` |
 | Principal identity | Username and realm are retained by their accessors | `HttpPrincipalTest.identityFieldsAreRetained` |
-| Principal rendering | Name and string form render as `realm:username` | `HttpPrincipalTest.nameAndToStringUseRealmThenUsername` |
+| Principal rendering | Name and string form are the username on JDK 8/Native; JDK 21 rendering is asserted separately | `HttpPrincipalTest.nameAndToStringFollowRuntimeBaseline` |
 | Empty and Unicode principals | Empty strings and non-ASCII values round-trip unchanged | `HttpPrincipalTest.emptyAndNonAsciiValuesRoundTrip` |
 | Principal equality identity | Equality uses username and realm, not an ambiguous rendered name | `HttpPrincipalTest.equalityUsesUsernameAndRealmRatherThanRenderedName` |
 | Principal equality rejection | Null and unrelated objects are rejected while equal principals compare equal | `HttpPrincipalTest.equalityRejectsNullAndUnrelatedValues` |
@@ -582,13 +609,15 @@ and disconnect tests that higher-level clients hide.
 | Repeated requests | Each call rechecks credentials; no success/failure cache | `BasicAuthenticatorTest.credentialsAreCheckedForEveryExchange` |
 | Callback exception | Same exception propagates, including IllegalArgumentException; no synthesized response | `BasicAuthenticatorTest.credentialCheckerExceptionPropagates` |
 | Header selection | First Authorization value is used, with case-insensitive header lookup | `BasicAuthenticatorTest.firstAuthorizationValueIsUsed` |
-| Null realm | NPE at construction | `BasicAuthenticatorTest.nullRealmIsRejected` |
-| Empty realm | NPE as documented by JDK 8; differs from JDK 21 IAE | `BasicAuthenticatorBaselineTest.emptyRealmIsRejectedWithNullPointerException` |
-| Baseline challenge | Exact `Basic realm="users"`, with no newer charset parameter | `BasicAuthenticatorBaselineTest.challengeUsesJdk8Form` |
-| Scheme case/spacing | Case-insensitive Basic and one or more ASCII spaces accepted (RFC 7617/HTTP authentication grammar) | `BasicAuthenticatorBaselineTest.schemeIsCaseInsensitiveAndAllowsMultipleSpaces` |
-| Malformed credential encoding | Failure 401 without invoking the callback; decoder errors and missing colons do not escape | `BasicAuthenticatorBaselineTest.malformedCredentialsFailWithoutCheckingCredentials` |
-| Null header keys/values (Native-only) | Documented JDK 8 null mappings and list elements are accepted | `HeadersNullContractTest.nullKeysAndValuesAreAccepted` |
-| Null filter exchange (Native-only) | NPE occurs before chain advancement or handler invocation; a later valid call still works | `FilterNullContractTest.nullExchangeDoesNotAdvanceChain` |
+| Null realm | Construction succeeds on JDK 8/Native; JDK 21 NPE is asserted separately | `BasicAuthenticatorTest.nullRealmFollowsRuntimeBaseline` |
+| Empty realm | Construction succeeds on JDK 8/Native; JDK 21 IAE is asserted separately | `BasicAuthenticatorBaselineTest.emptyRealmFollowsRuntimeBaseline` |
+| Baseline challenge | Exact `Basic realm="users"`, with no newer charset parameter | `BasicAuthenticatorBaselineTest.challengeUsesRuntimeForm` |
+| Scheme case/spacing | Exact Basic scheme, one separator; extra spaces reach the decoder and fail | `BasicAuthenticatorBaselineTest.schemeIsCaseSensitiveAndPayloadHasOneSeparator` |
+| Malformed credential encoding | Measured parsing exceptions propagate without invoking the callback | `BasicAuthenticatorBaselineTest.malformedCredentialsPropagateParsingExceptions` |
+| Header validation | Direct null writes fail; nullable reads and non-string keys follow the measured runtime | `HeadersNullContractTest.directWritesRejectNullMappingsAndElements` |
+| Header line breaks | Invalid direct writes preserve state; folded values are retained in the map | `HeadersNullContractTest.validatesLineBreaksBeforeMutatingHeaders` |
+| Header bulk insertion | Raw spelling is preserved on JDK 8/Native | `HeadersTest.bulkInsertionPreservesJdk8KeySpelling` |
+| Null filter exchange | Null passes through and advances the chain normally | `FilterNullContractTest.nullExchangePassesThroughTheChain` |
 | Native socket binding | Loopback binding gets a positive OS-assigned port; close marks the socket closed | `NativeSocketSmokeTest.bindsLoopbackSocketAndReleasesIt` |
 
 ## Progress
@@ -610,14 +639,15 @@ and disconnect tests that higher-level clients hide.
 - [x] Initial blocking server, contexts, real exchanges and socket integration tests.
 - [x] HTTP persistence, pipelining and bounded unread-body draining.
 - [x] Local lifecycle/API compatibility audit and provider-discovery feasibility.
-- [ ] External compatibility validation (JDK 8 runtime, macOS/Windows) and upstream discussion.
+- [x] JDK 8 runtime comparison, with documented discrepancies.
+- [ ] External platform validation (macOS/Windows) and upstream discussion.
 
-The shared header, principal, filter, authentication and server JUnit contracts run as 36
-tests on the JVM reference project and, together with the seven Native-only
-baseline/socket tests, 12 request-head parser tests, 11 fixed-length input
+The shared header, principal, filter, authentication and server JUnit contracts run as 45
+tests on the JVM reference project and, together with the Native-only
+socket smoke test, 12 request-head parser tests, 11 fixed-length input
 tests, 14 chunked input tests, 12 fixed-length/no-body output tests, and 9 chunked
 output tests, 11 response-head writer tests and 20 Native-only server integration tests,
-as 132 tests on Native.
+as 135 tests on Native.
 Internal engine tests use the engine package to access package-scoped code;
 they stay in the Native test tree and are not shared with the JDK reference.
 Run `testFull` (and `+testFull`
@@ -626,9 +656,10 @@ for all configured Scala versions) when validating the complete matrix.
 
 ## Reference observations and latest validation
 
-The independent black-box probes used Temurin JDK 21.0.10 with default charset
-UTF-8. No OpenJDK implementation or test code was inspected. No JDK 8 runtime
-was available; these runtime observations do not establish JDK 8 behavior.
+The original independent black-box probes used Temurin JDK 21.0.10 with default
+charset UTF-8. Their observations below are specific to JDK 21. The later JDK 8
+comparison is recorded separately below. No OpenJDK implementation or test code
+was inspected.
 
 - JDK 21 Headers rejected `getFirst(null)`, `add(null, ...)`, `set(null, ...)`,
   and `put(null, null)` with NPE, despite the documented JDK 8 null baseline.
@@ -659,8 +690,13 @@ Latest implementation validation (2026-11-05, Linux, Temurin JDK 21.0.10):
 
 | Target | Command | Result on Scala 2.12.21, 2.13.18, and 3.9.0 |
 | --- | --- | --- |
-| Native local compatibility audit | `sbt -batch +testFull` | 132 tests passed per version, zero failures |
-| JVM reference local compatibility audit | `sbt -batch +testFull` in `jvm-reference/` | 36 shared tests passed per version, zero failures |
+| Native JDK 8 runtime alignment | `sbt -batch +testFull` | 135 tests passed per version, zero failures |
+| JDK 8 shared runtime contracts | `HTTP_SERVER_TEST_JAVA_HOME=...` with `testFull` in `jvm-reference/` | 45 tests passed on Scala 2.12.21 and 2.13.18; Scala 3 requires Java 17 |
+| JDK 21 shared runtime contracts | `sbt -batch +testFull` in `jvm-reference/` | 45 tests passed per version, zero failures |
+| Native local compatibility audit (previous) | `sbt -batch +testFull` | 132 tests passed per version, zero failures |
+| JVM reference local compatibility audit (previous) | `sbt -batch +testFull` in `jvm-reference/` | 36 shared tests passed per version, zero failures |
+| JDK 8 runtime comparison (before alignment) | `HTTP_SERVER_TEST_JAVA_HOME=... sbt -batch ';++2.12.21;testFull'` and the corresponding `2.13.18` command in `jvm-reference/` | 30 shared tests passed, six failed on each Scala 2 line; Scala 3 cannot run on JDK 8 |
+| JDK 8 additional baseline comparison (before alignment) | Temporary session sources; `testOnly` the three existing baseline suites on Scala 2.13.18 | One passed, five failed; details below |
 | Native persistence slice | `sbt -batch +testFull` | 127 tests passed per version, zero failures |
 | Native server integration slice (previous) | `sbt -batch +testFull` | 119 tests passed per version, zero failures |
 | Native response-head writer slice (previous) | `sbt -batch +testFull` | 108 tests passed per version, zero failures |
@@ -672,6 +708,115 @@ Latest implementation validation (2026-11-05, Linux, Temurin JDK 21.0.10):
 | Native request-head slice (previous) | `sbt -batch +testFull` | 51 tests passed per version, zero failures |
 | JVM reference (previous server slice) | `sbt -batch +testFull` in `jvm-reference/` | 32 shared tests passed per version, zero failures |
 | Refined shared tests (previous API slice) | Cross-version `+testOnly` for FilterTest and BasicAuthenticatorTest in `jvm-reference/` | 5 filter and 10 authentication tests passed per version after subsequent test refinements |
+
+### JDK 8 runtime alignment results
+
+The user authorized matching the measured JDK 8 behaviors, including the quirks
+listed in `COMPATIBILITY.md`. The local Scala Native checkout reports
+`java.specification.version=1.8` in `javalib/.../java/lang/System.scala` and uses
+JVM/version-specific assertions in its shared JUnit tree (for example
+`PriorityQueueTest`). The same small runtime distinction is used here, with no
+skips on either target.
+
+Before production changes, all 45 revised assertions passed on Temurin 8u482
+with Scala 2.13.18. Running the affected Native suites then failed 12 of 40 tests
+at the intended assertions. Production fixes now cover username rendering,
+unvalidated bulk header insertion, direct header validation, null/empty realms,
+exact Basic parsing and exceptions, null filter dispatch and ordered duplicate
+context registrations. Duplicate contexts are stored in a private list so
+selection and both removal overloads preserve the measured behavior.
+
+The final `sbt -batch +testFull` passes 135 Native tests on Scala 2.12.21,
+2.13.18 and 3.9.0. The reference suite passes 45 tests on JDK 8 with Scala
+2.12.21/2.13.18, and 45 on JDK 21 with all three Scala versions. The previously
+Native-only compatibility suites are now registered in the reference build.
+Three added checks cover raw bulk spelling, header line-break validation and
+independent duplicate-context routing/removal. No tests are skipped.
+
+Header response tests now inject malformed raw bulk entries, since direct header
+writes reject them earlier. The first full Native run found that comparing
+Headers maps containing malformed raw keys calls normalized lookup; the state
+assertion now compares entry sets directly. After this test adjustment the full
+matrix passes. The serializer still rejects invalid fields before emitting any
+bytes, including null mappings and CRLF values inserted through bulk mutation.
+No production dependencies were added, and no OpenJDK source/tests were inspected.
+`git diff --check` passes; existing linker warnings remain non-failing.
+
+The commands below now succeed with the aligned implementation and runtime-aware
+assertions. The failure details are retained as the original comparison evidence.
+
+### Initial JDK 8 runtime comparison results (before alignment)
+
+Temurin 8u482 (`1.8.0_482-b08`) is installed through SDKMAN at
+`/home/sake/.sdkman/candidates/java/8.0.482-tem`. The SDKMAN default remains
+Temurin 21.0.10. sbt and Scala compilation stay on JDK 21; only the test process
+uses JDK 8. Context7's sbt examples were not pinned to 2.0.12, so runtime selection
+was verified with `-XshowSettings:properties`: `java.specification.version=1.8`,
+`java.version=1.8.0_482`, `java.vendor=Temurin` and the installed JDK's `jre` path.
+`javap -protected` was used only to inspect the JDK 8 public/protected API
+signature, confirming mutable `BasicAuthenticator.realm`. No implementation
+bytecode or source was inspected.
+
+Reproduce the unchanged shared-contract comparison from `jvm-reference/`:
+
+```sh
+HTTP_SERVER_TEST_JAVA_HOME="$HOME/.sdkman/candidates/java/8.0.482-tem" \
+  sbt -batch ';++2.12.21;testFull'
+HTTP_SERVER_TEST_JAVA_HOME="$HOME/.sdkman/candidates/java/8.0.482-tem" \
+  sbt -batch ';++2.13.18;testFull'
+```
+
+Both runs intentionally retain the existing expectations and exit nonzero:
+30 tests pass and six fail. The failures are:
+
+- `HttpPrincipalTest.nameAndToStringUseRealmThenUsername`: `getName()` returns
+  `alice`, while Native and the published JDK 8 contract use `users:alice`.
+- `HttpPrincipalTest.emptyAndNonAsciiValuesRoundTrip`: the empty name is `""`
+  instead of `":"`; the Unicode assertions later in this test are not reached.
+- `HttpPrincipalTest.equalityUsesUsernameAndRealmRatherThanRenderedName`: names
+  `b:c` and `c` differ; the expected shared rendered name is `a:b:c`. The later
+  equality assertion is not reached.
+- `HeadersTest.mapOperationsUseHeaderKeySemantics`: bulk insertion of `X-Other`
+  is not retrieved by `get("x-other")`. Later removal assertions are not reached.
+- `BasicAuthenticatorTest.nullRealmIsRejected`: construction with null returns
+  normally. Native rejects null; the JDK 8 constructor docs explicitly describe
+  empty realm rejection, not null realm rejection.
+- `HttpServerContractTest.lifecycleAndContexts`: a duplicate `createContext`
+  returns normally despite documented duplicate-path rejection. Later lifecycle
+  assertions in this test are not reached. Routing/removal, exchange/filter
+  metadata and sequential persistent-connection tests all pass independently.
+
+The six existing Native-only baseline tests were also compiled and run on JDK 8
+using Scala 2.13.18. `challengeUsesJdk8Form` passes. The other five fail:
+`emptyRealmIsRejectedWithNullPointerException` (constructor accepts empty realm),
+`schemeIsCaseInsensitiveAndAllowsMultipleSpaces` (lowercase `basic` does not
+succeed), `malformedCredentialsFailWithoutCheckingCredentials` (`Basic !!!`
+throws IAE), `HeadersNullContractTest.nullKeysAndValuesAreAccepted` (initial
+`put(null, null)` throws NPE) and
+`FilterNullContractTest.nullExchangeDoesNotAdvanceChain` (no NPE).
+Only the first failing assertion/input of each case is established.
+
+To reproduce that supplemental run, append the three source files temporarily:
+
+```sh
+HTTP_SERVER_TEST_JAVA_HOME="$HOME/.sdkman/candidates/java/8.0.482-tem" sbt -batch \
+  ';++2.13.18;set Test / unmanagedSources ++= Seq("BasicAuthenticatorBaselineTest.scala", "HeadersNullContractTest.scala", "FilterNullContractTest.scala").map(name => baseDirectory.value.getParentFile / "src/test/scala/org/scalanative/testsuite/httpserver" / name);testOnly org.scalanative.testsuite.httpserver.BasicAuthenticatorBaselineTest org.scalanative.testsuite.httpserver.HeadersNullContractTest org.scalanative.testsuite.httpserver.FilterNullContractTest'
+```
+
+The source additions are session-local. At that initial comparison checkpoint, no production classes or test assertions
+were changed and no exclusions hid failures. Runtime alignment was authorized
+subsequently, as recorded above. No JDK tests were copied.
+`COMPATIBILITY.md` separates documentation/runtime discrepancies from explicit
+Native policy. Matching JDK 8 runtime quirks would require a separate compatibility
+decision. Scala 3.9.0's classfile major version is 61 (Java 17), versus 52 for the
+Scala 2.13 tests; a Scala 3/JDK 8 run is not possible with the pinned compiler.
+JDK 8 runtime comparison does not establish complete API or wire compatibility.
+
+The supplemental compilation initially lost its sbt server connection before
+executing any tests; a retry compiled and ran all six tests. That first disconnect
+is infrastructure evidence, not a compatibility result.
+
+### Previous local implementation validation
 
 The local compatibility audit adds four real-server contracts shared with the
 JDK reference build and one Native regression. The regression failed before the
@@ -819,6 +964,7 @@ sbt's read-only cache. A scoped Native clean followed by `+testFull` resolved th
 in both Headers and BasicAuthenticator work. Use `testFull` for full-suite proof:
 sbt 2's `test` can skip cached passing tests, even after clean.
 
-Provider discovery, direct mutable-realm extension coverage, JDK 8 runtime
-comparison and macOS/Windows validation remain deferred as described above.
-The local audit is complete; no upstream readiness or acceptance is claimed.
+Provider discovery is out of scope. Direct mutable-realm extension coverage and
+macOS/Windows validation remain deferred as described above. JDK 8 runtime
+comparison and alignment are complete for the checked cases;
+no full compatibility, upstream readiness or acceptance is claimed.

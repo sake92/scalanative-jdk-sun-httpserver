@@ -13,10 +13,11 @@ class HttpPrincipalTest {
     assertEquals("users", principal.getRealm())
   }
 
-  @Test def nameAndToStringUseRealmThenUsername(): Unit = {
+  @Test def nameAndToStringFollowRuntimeBaseline(): Unit = {
     val principal = new HttpPrincipal("alice", "users")
 
-    assertEquals("users:alice", principal.getName())
+    val expected = if (ReferenceRuntime.jdk8) "alice" else "users:alice"
+    assertEquals(expected, principal.getName())
     assertEquals(principal.getName(), principal.toString())
   }
 
@@ -24,19 +25,24 @@ class HttpPrincipalTest {
     val empty = new HttpPrincipal("", "")
     assertEquals("", empty.getUsername())
     assertEquals("", empty.getRealm())
-    assertEquals(":", empty.getName())
+    val emptyName = if (ReferenceRuntime.jdk8) "" else ":"
+    assertEquals(emptyName, empty.getName())
 
     val unicode = new HttpPrincipal("ž用户", "област")
     assertEquals("ž用户", unicode.getUsername())
     assertEquals("област", unicode.getRealm())
-    assertEquals("област:ž用户", unicode.getName())
+    val unicodeName = if (ReferenceRuntime.jdk8) "ž用户" else "област:ž用户"
+    assertEquals(unicodeName, unicode.getName())
   }
 
   @Test def equalityUsesUsernameAndRealmRatherThanRenderedName(): Unit = {
     val first = new HttpPrincipal("b:c", "a")
     val second = new HttpPrincipal("c", "a:b")
 
-    assertEquals(first.getName(), second.getName())
+    if (ReferenceRuntime.jdk8) {
+      assertEquals("b:c", first.getName())
+      assertEquals("c", second.getName())
+    } else assertEquals(first.getName(), second.getName())
     assertNotEquals(first, second)
   }
 

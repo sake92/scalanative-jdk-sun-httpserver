@@ -6,9 +6,9 @@ import java.util.ArrayList
 import org.junit.Assert._
 import org.junit.Test
 
-/** Native follows the documented JDK 8 null contract; JDK 21 does not. */
+/** Both measured JDK runtimes pass null through to the callbacks. */
 class FilterNullContractTest {
-  @Test def nullExchangeDoesNotAdvanceChain(): Unit = {
+  @Test def nullExchangePassesThroughTheChain(): Unit = {
     val events = new ArrayList[String]()
     val filters = new ArrayList[Filter]()
     filters.add(new Filter {
@@ -24,23 +24,13 @@ class FilterNullContractTest {
     }
     val chain = new Filter.Chain(filters, handler)
 
-    try {
-      chain.doFilter(null)
-      fail("expected NullPointerException")
-    } catch {
-      case _: NullPointerException => ()
-    }
-    assertTrue(events.isEmpty())
-
-    chain.doFilter(new HeaderExchange())
+    chain.doFilter(null)
     assertEquals(Seq("filter", "handler"), events.toArray().toSeq)
-
-    try {
-      chain.doFilter(null)
-      fail("expected NullPointerException for exhausted chain")
-    } catch {
-      case _: NullPointerException => ()
-    }
-    assertEquals(2, events.size())
+    events.clear()
+    chain.doFilter(new HeaderExchange())
+    assertEquals(Seq("handler"), events.toArray().toSeq)
+    events.clear()
+    chain.doFilter(null)
+    assertEquals(Seq("handler"), events.toArray().toSeq)
   }
 }

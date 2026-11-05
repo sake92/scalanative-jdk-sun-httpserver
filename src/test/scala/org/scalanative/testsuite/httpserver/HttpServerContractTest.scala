@@ -23,12 +23,31 @@ class HttpServerContractTest {
     assertNull(context.getHandler())
     context.setHandler(handler("late"))
     assertThrows(classOf[IllegalArgumentException], () => context.setHandler(handler("again")))
-    assertThrows(classOf[IllegalArgumentException], () => server.createContext("/late"))
     server.start()
     assertThrows(classOf[IllegalStateException], () => server.setExecutor(null))
     assertThrows(classOf[IllegalArgumentException], () => server.stop(-1))
     server.stop(0)
     assertThrows(classOf[IllegalStateException], () => server.start())
+  }
+
+  @Test def duplicateContextsFollowRuntimeBaseline(): Unit = withServer { server =>
+    server.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+    val first = server.createContext("/same", handler("first"))
+    if (ReferenceRuntime.jdk8) {
+      val second = server.createContext("/same", handler("second"))
+      assertNotSame(first, second)
+      server.start()
+      assertEquals("first", request(server, "/same")._2)
+      server.removeContext(first)
+      assertEquals("second", request(server, "/same")._2)
+      server.removeContext(second)
+      assertEquals(404, request(server, "/same")._1)
+      val third = server.createContext("/same", handler("third"))
+      server.createContext("/same", handler("fourth"))
+      server.removeContext("/same")
+      assertEquals("fourth", request(server, "/same")._2)
+      assertThrows(classOf[IllegalArgumentException], () => server.removeContext(third))
+    } else assertThrows(classOf[IllegalArgumentException], () => server.createContext("/same"))
   }
 
   @Test def routesAndRemovesContexts(): Unit = withServer { server =>
