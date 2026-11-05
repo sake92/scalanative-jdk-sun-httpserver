@@ -26,6 +26,13 @@ jobs:
           java-version: 17
           cache: sbt
       - uses: sbt/setup-sbt@v1
+      - name: Exclude host HTTP server from publishing JDK
+        # Scaladoc otherwise loads the JDK's classes instead of this library's TASTy.
+        run: |
+          jlink --add-modules java.se,jdk.unsupported,jdk.zipfs,jdk.crypto.ec,jdk.compiler,jdk.jartool \
+            --output "$RUNNER_TEMP/publishing-jdk"
+          echo "JAVA_HOME=$RUNNER_TEMP/publishing-jdk" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/publishing-jdk/bin" >> "$GITHUB_PATH"
       - run: sbt ci-release
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
