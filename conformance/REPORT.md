@@ -45,9 +45,10 @@ An earlier fixture TERM run hit a Native `PosixThread.park` assertion; investiga
 
 | Local Native check | Result |
 | --- | --- |
-| `sbt +testFull`, Scala 2.12.21 / 2.13.18 / 3.9.0 | 143/143 per version |
+| `sbt +testFull`, Scala 2.12.21 / 2.13.18 / 3.9.0 | 145/145 per version |
 
 - Six direct JUnit tests cover stalled/dripping initial and subsequent heads, recovery, body reads beyond the header budget, fresh deadlines and configuration; five failed before implementation. Host-JDK and external suites were not rerun for this change.
+- Two additional socket tests accept valid initial and subsequent heads sent in four fragments with 300 ms pauses within a two-second budget; synthetic local clients only, not deployment-rate measurements. Minimum ingress rates remain disabled; [policy rationale](../ARCHITECTURE.md#why-there-is-no-minimum-header-ingress-rate).
 
 Raw logs, resource samples and tool reports stay untracked in
 `target/conformance-results/` and may be removed during cleanup.

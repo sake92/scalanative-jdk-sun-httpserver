@@ -24,6 +24,10 @@ class HttpServerTest {
 
   @Test def subsequentHeadHasAnAbsoluteDeadline(): Unit = drippingHeadExpires(true)
 
+  @Test def acceptsSlowCompleteInitialHeadWithinDeadline(): Unit = slowCompleteHeadSucceeds(false)
+
+  @Test def acceptsSlowCompleteSubsequentHeadWithinDeadline(): Unit = slowCompleteHeadSucceeds(true)
+
   @Test def idlePersistentHeadExpires(): Unit = withHeaderTimeout("300") {
     withServer { server =>
       server.createContext("/", textHandler("ready"))
@@ -83,6 +87,33 @@ class HttpServerTest {
     finally {
       if (previous == null) System.clearProperty(property)
       else System.setProperty(property, previous)
+    }
+  }
+
+  private def slowCompleteHeadSucceeds(subsequent: Boolean): Unit = withHeaderTimeout("2000") {
+    withServer { server =>
+      val calls = new AtomicInteger()
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = { calls.incrementAndGet(); respond(exchange, "ready") }
+      })
+      server.start()
+      withClient(server) { socket =>
+        val output = socket.getOutputStream()
+        if (subsequent) {
+          output.write(requestBytes("/"))
+          assertEquals("ready", readResponse(socket.getInputStream()).body)
+        }
+        val fragments = Seq("GET / HTTP/1.1\r\n", "Host: x\r\n", "Connection: close\r\n", "\r\n")
+        output.write(fragments.head.getBytes(ISO_8859_1))
+        fragments.tail.foreach { fragment =>
+          Thread.sleep(300)
+          output.write(fragment.getBytes(ISO_8859_1))
+        }
+        assertEquals("ready", readResponse(socket.getInputStream()).body)
+        assertConnectionClosed(socket)
+        val expectedCalls = if (subsequent) 2 else 1
+        assertEquals(expectedCalls, calls.get())
+      }
     }
   }
 

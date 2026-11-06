@@ -187,6 +187,23 @@ in [Compatibility](COMPATIBILITY.md#protocol-and-security-limits).
 The server never shuts down a caller-supplied executor; its lifecycle belongs to
 the application.
 
+### Why there is no minimum header ingress rate
+
+The absolute deadline bounds the time a worker spends waiting for a request head,
+even when bytes keep arriving. A minimum ingress rate could reject some clients
+earlier, but would also reject slow or bursty valid traffic that finishes within
+the deadline. The current policy accepts that traffic. There are no deployment
+traffic measurements here to justify a universal rate or grace period.
+
+[OWASP's guidance](https://cheatsheetseries.owasp.org/cheatsheets/Denial_of_Service_Cheat_Sheet.html#rate-limiting)
+calls for measuring genuine traffic when choosing a minimum rate.
+[Apache's controls](https://httpd.apache.org/docs/2.4/mod/mod_reqtimeout.html)
+combine an initial time allowance with byte-based extensions and an optional
+maximum duration; their defaults do not establish suitable values for this server.
+If deployment evidence calls for earlier rejection, a minimum rate can be
+evaluated alongside admission limits. The header deadline alone does not limit
+connection arrivals, queued work or body/write stalls.
+
 ## Finishing an exchange and stopping the server
 
 After the handler returns, the server supplies a 500 response if the handler
