@@ -45,10 +45,10 @@ JDK 21 differences in these areas are asserted explicitly by the shared tests.
 | Body framing | Positive length is exact; zero is chunked on HTTP/1.1 or connection-delimited on HTTP/1.0; negative length is bodyless; HEAD/bodyless status rules override framing |
 | Persistence | HTTP/1.1 defaults to keep-alive; HTTP/1.0 requires opt-in; pipelined responses retain order |
 | Unread bodies | Reuse requires successful drain within 64 KiB of wire bytes and a one-second total deadline; otherwise connection closes |
-| Timeouts | Every request head has a 30-second absolute deadline by default, including request line, headers and idle wait; expiry closes without a response. Application body reads have no server timeout |
+| Timeouts | Every request head has a 30-second absolute deadline by default, including request line, headers and idle wait; expiry closes without a response. Body socket reads and socket writes default to 30 seconds per operation; expiry closes the connection and fails I/O |
 | Capacity | No configurable upload-size, connection-count or worker limit |
 | Execution | Default executor uses the accept thread; idle/slow connections occupy it. Concurrent dispatch requires a caller-owned executor, which the server never shuts down or interrupts |
-| Shutdown | Terminal; closes idle sockets, gives active handlers `delay` seconds, closes remaining sockets, then joins the owned thread for up to 500 ms. Uncooperative handlers may outlive cleanup |
+| Shutdown | Terminal; closes idle sockets, gives active handlers `delay` seconds, closes remaining sockets, then joins owned accept/watchdog threads within a shared 500 ms budget. Uncooperative handlers may outlive cleanup |
 | Exchanges | Attributes are local overrides over context defaults; filters are snapshotted; handler return triggers cleanup; missing response produces 500 |
 
 The `org.scalanative.httpserver.headerTimeoutMillis` system property configures
@@ -60,7 +60,26 @@ heads on persistent connections, and is not renewed by incoming bytes. Executor
 queue time is excluded. This deliberately bounds header reads that previously
 could continue indefinitely while a client dripped bytes. There is no minimum
 ingress rate; legitimate clients must finish each head within the configured
-budget. Request bodies and response streaming are outside this deadline.
+budget. Request bodies and response streaming are outside this header deadline.
+
+The `org.scalanative.httpserver.bodyReadTimeoutMillis` and
+`org.scalanative.httpserver.writeTimeoutMillis` system properties set the body
+socket-read timeout and socket-write deadline, respectively. Each defaults to
+30000 milliseconds and is snapshotted at server construction. Values must be
+integers from 0 to 2147483647; 0 disables that timeout. Invalid values cause
+`IllegalArgumentException`.
+
+Body timeouts apply to socket reads, including chunk framing and trailers.
+Successful socket reads renew that allowance; one application read or skip may
+span multiple socket reads. A write deadline covers each underlying socket output
+call, including output from response headers, interim/error responses and buffer
+flushes. Progress within a single output call does not renew its deadline. These
+limits exclude time between handler I/O calls and impose no total exchange or
+streaming duration limit. Buffered output is not evidence of delivery to the peer.
+Expiry closes the socket, prevents reuse and surfaces an `IOException` to a
+blocked handler; exchange cleanup may consume the error. Caller-owned threads
+are not interrupted. Slow progress and handlers that stop doing I/O can still
+hold workers indefinitely; admission limits and handler cancellation are separate.
 
 ## Validation
 
@@ -68,7 +87,7 @@ Latest local results: Linux, Scala Native 0.5.12; Temurin 21.0.10 and 8u482.
 
 | Target | Scala | Passing tests |
 | --- | --- | --- |
-| Native | 2.12.21, 2.13.18, 3.9.0 | 145 per version |
+| Native | 2.12.21, 2.13.18, 3.9.0 | 155 per version |
 | JDK 8 reference | 2.12.21, 2.13.18 | 45 per version |
 | JDK 21 reference | 2.12.21, 2.13.18, 3.9.0 | 45 per version |
 

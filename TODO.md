@@ -8,7 +8,6 @@ Move completed behavior into the compatibility reference and validation evidence
 
 Agree on limits and configuration before implementation; preserve the JDK 8 public API and caller ownership of executors.
 
-- [ ] Define request-body and response-write timeout policy, including streaming handlers.
 - [ ] Define connection admission, queued-work bounds and overload behavior.
 - [ ] Decide whether upload-size limits belong in the server or application handlers.
 - [ ] Turn each confirmed defect into a direct JUnit regression and validate the Native cross-build matrix.

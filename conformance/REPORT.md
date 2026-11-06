@@ -22,8 +22,8 @@ Scala 2.13.18 on Temurin 8u482 and 21.0.10.
 
 ## Slow-client baseline
 
-These measurements predate the absolute header deadline; the external slow-client
-baseline has not been rerun with that change.
+These measurements predate the header deadlines and body/write timeouts; the
+external slow-client baseline has not been rerun with those changes.
 
 | Target | Socket cases completed | slowhttptest 1.9.0 runs completed |
 | --- | --- | --- |
@@ -41,14 +41,15 @@ Startup failure, timeout, invalid arguments, output preservation and TERM cleanu
 checked; no test processes remained. Final Native h1spec rerun: 33/33.
 An earlier fixture TERM run hit a Native `PosixThread.park` assertion; investigation remains in [TODO.md](../TODO.md).
 
-## Header-deadline regressions
+## Native timeout regressions
 
 | Local Native check | Result |
 | --- | --- |
-| `sbt +testFull`, Scala 2.12.21 / 2.13.18 / 3.9.0 | 145/145 per version |
+| `sbt +testFull`, Scala 2.12.21 / 2.13.18 / 3.9.0 | 155/155 per version |
 
 - Six direct JUnit tests cover stalled/dripping initial and subsequent heads, recovery, body reads beyond the header budget, fresh deadlines and configuration; five failed before implementation. Host-JDK and external suites were not rerun for this change.
 - Two additional socket tests accept valid initial and subsequent heads sent in four fragments with 300 ms pauses within a two-second budget; synthetic local clients only, not deployment-rate measurements. Minimum ingress rates remain disabled; [policy rationale](../ARCHITECTURE.md#why-there-is-no-minimum-header-ingress-rate).
+- Ten body/write tests cover stalled fixed/chunked bodies and trailers, blocked writers and recovery, streaming, disabled limits, configuration snapshots, watchdog cleanup and flushing buffered responses after drain failure; five behavior cases failed before implementation, and the drain case caught an intermediate regression. Host-JDK and external suites were not rerun.
 
 Raw logs, resource samples and tool reports stay untracked in
 `target/conformance-results/` and may be removed during cleanup.

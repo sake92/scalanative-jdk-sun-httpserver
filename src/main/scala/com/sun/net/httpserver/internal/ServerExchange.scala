@@ -28,7 +28,11 @@ private[httpserver] final class ServerExchange(
   private val bodySource = new InputStream {
     override def read(): Int = {
       prepareRead(1)
-      val next = input.read()
+      val next = try input.read()
+      catch { case error: SocketTimeoutException =>
+        if (drainRemaining < 0) abort()
+        throw error
+      }
       if (drainRemaining >= 0 && next >= 0) drainRemaining -= 1
       next
     }
@@ -39,7 +43,11 @@ private[httpserver] final class ServerExchange(
       // multiple blocking refills. During draining, return after available data
       // (or one blocking byte) so the absolute deadline is checked again.
       val maximum = if (drainRemaining >= 0) math.min(permitted, math.max(1, input.available())) else permitted
-      val count = input.read(bytes, offset, maximum)
+      val count = try input.read(bytes, offset, maximum)
+      catch { case error: SocketTimeoutException =>
+        if (drainRemaining < 0) abort()
+        throw error
+      }
       if (drainRemaining >= 0 && count > 0) drainRemaining -= count
       count
     }

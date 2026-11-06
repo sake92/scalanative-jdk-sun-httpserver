@@ -13,6 +13,10 @@ private[httpserver] object ConnectionPolicy {
     value
   }
 
+  def bodyReadTimeoutMillis(): Int = ioTimeoutMillis("bodyReadTimeoutMillis")
+
+  def writeTimeoutMillis(): Int = ioTimeoutMillis("writeTimeoutMillis")
+
   def requestPersistent(head: RequestHeadParser.RequestHead): Boolean = {
     val values = head.headers.collect { case (name, value) if name.equalsIgnoreCase("Connection") => value }
     val options = tokens(values).getOrElse(throw new ProtocolException("Invalid Connection options"))
@@ -32,6 +36,12 @@ private[httpserver] object ConnectionPolicy {
         case None => true
       }
     }
+  }
+
+  private def ioTimeoutMillis(name: String): Int = {
+    val value = System.getProperty("org.scalanative.httpserver." + name, "30000").toInt
+    require(value >= 0, name + " must be nonnegative")
+    value
   }
 
   private def tokens(values: Vector[String]): Option[Vector[String]] = {

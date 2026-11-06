@@ -10,6 +10,8 @@ import com.sun.net.httpserver.{Headers, HttpContext, HttpHandler, HttpServer}
 /** Blocking server with sequential exchanges on each persistent connection. */
 private[httpserver] final class BlockingHttpServer extends HttpServer {
   private val headerTimeoutMillis = ConnectionPolicy.headerTimeoutMillis()
+  private val bodyReadTimeoutMillis = ConnectionPolicy.bodyReadTimeoutMillis()
+  private val writeTimeouts = new WriteTimeouts(ConnectionPolicy.writeTimeoutMillis())
   private val lifecycle = new Object()
   private val contexts = new ArrayList[ServerContext]()
   private val connections = new HashSet[Socket]()
@@ -17,6 +19,7 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
   private var listener: ServerSocket = null
   private var address: InetSocketAddress = null
   private var acceptThread: Thread = null
+  private var writeTimeoutThread: Thread = null
   private var executor: Executor = null
   private var started = false
   private var stopped = false
@@ -53,11 +56,13 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
     acceptThread = new Thread(new Runnable { override def run(): Unit = acceptLoop() }, "httpserver-accept")
     acceptThread.setDaemon(false)
     started = true
-    try acceptThread.start()
+    try {
+      writeTimeoutThread = writeTimeouts.start()
+      acceptThread.start()
+    }
     catch {
       case NonFatal(error) =>
-        stopped = true
-        listener.close()
+        stop(0)
         throw error
     }
   }
@@ -111,15 +116,17 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
       val iterator = connections.iterator()
       while (iterator.hasNext()) closeSocket(iterator.next())
     }
-    if (thread != null && (thread ne self)) {
-      thread.interrupt()
-      val cleanupDeadline = System.nanoTime() + 500000000L
-      while (thread.isAlive() && cleanupDeadline - System.nanoTime() > 0) {
+    writeTimeouts.stop()
+    val cleanupDeadline = System.nanoTime() + 500000000L
+    val ownedThreads = List(thread, writeTimeoutThread).filter(owned => owned != null && (owned ne self))
+    ownedThreads.foreach { owned =>
+      owned.interrupt()
+      while (owned.isAlive() && cleanupDeadline - System.nanoTime() > 0) {
         val remaining = cleanupDeadline - System.nanoTime()
-        try thread.join(math.max(1L, remaining / 1000000L))
+        try owned.join(math.max(1L, remaining / 1000000L))
         catch { case _: InterruptedException => interrupted = true }
       }
-      if (thread.isAlive()) System.err.println("HTTP server handler exceeded shutdown cleanup budget")
+      if (owned.isAlive()) System.err.println("HTTP server owned thread exceeded shutdown cleanup budget")
     }
     if (interrupted) self.interrupt()
   }
@@ -163,7 +170,7 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
     try {
       if (isStopped || socket.isClosed()) return
       val input = new BufferedInputStream(socket.getInputStream())
-      val output = new BufferedOutputStream(socket.getOutputStream())
+      val output = new BufferedOutputStream(writeTimeouts.output(socket))
       while (!isStopped && !socket.isClosed() && !Thread.currentThread().isInterrupted()) {
         if (!processExchange(socket, input, output)) return
       }
@@ -180,7 +187,7 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
         case error: RequestHeadParser.ParseException => errorResponse(output, error.responseCode); return false
       }
       if (head.isEmpty) return false
-      socket.setSoTimeout(0)
+      socket.setSoTimeout(bodyReadTimeoutMillis)
       val request = head.get
       if (request.method == "CONNECT") { errorResponse(output, 501); return false }
       val persistent = try ConnectionPolicy.requestPersistent(request)

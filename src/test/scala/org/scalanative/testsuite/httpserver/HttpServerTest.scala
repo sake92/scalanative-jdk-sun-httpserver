@@ -11,6 +11,193 @@ import org.junit.Assert._
 import org.junit.Test
 
 class HttpServerTest {
+  @Test def stalledFixedBodyReadClosesConnection(): Unit = stalledBodyReadExpires("Content-Length: 1\r\n", "")
+
+  @Test def stalledChunkDataReadClosesConnection(): Unit = stalledBodyReadExpires("Transfer-Encoding: chunked\r\n", "1\r\n")
+
+  @Test def stalledTrailerReadClosesConnection(): Unit = stalledBodyReadExpires("Transfer-Encoding: chunked\r\n", "0\r\nX-Slow: ")
+
+  @Test def drainTimeoutStillFinishesBufferedResponse(): Unit = withIoTimeouts("300", "300") {
+    withServer { server =>
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = exchange.sendResponseHeaders(403, -1)
+      })
+      server.start()
+      withClient(server) { socket =>
+        socket.getOutputStream().write(requestBytes("/", "POST", "Content-Length: 1\r\n"))
+        assertEquals(403, readResponse(socket.getInputStream()).status)
+        assertConnectionClosed(socket)
+      }
+    }
+  }
+
+  @Test def bodyAndResponseStreamingCanOutlastIndividualIoTimeouts(): Unit = withIoTimeouts("300", "300") {
+    withServer { server =>
+      val entered = new CountDownLatch(1)
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = {
+          entered.countDown()
+          val body = new String(readAll(exchange.getRequestBody()), ISO_8859_1)
+          exchange.sendResponseHeaders(200, 0)
+          exchange.getResponseBody().write(body.getBytes(ISO_8859_1))
+          exchange.getResponseBody().flush()
+          Thread.sleep(600)
+          exchange.getResponseBody().write('!')
+          exchange.close()
+        }
+      })
+      server.start()
+      withClient(server) { socket =>
+        val output = socket.getOutputStream()
+        output.write(requestBytes("/", "POST", "Content-Length: 4\r\n"))
+        assertTrue(entered.await(2, TimeUnit.SECONDS))
+        "abcd".foreach { value => Thread.sleep(150); output.write(value.toInt) }
+        assertEquals("abcd!", readResponse(socket.getInputStream()).body)
+        output.write(requestBytes("/", "POST", "Connection: close\r\nContent-Length: 1\r\n", "x"))
+        assertEquals("x!", readResponse(socket.getInputStream()).body)
+        assertConnectionClosed(socket)
+      }
+    }
+  }
+
+  @Test def disabledBodyTimeoutAllowsAStallAndHandlerThinkTimeIsExcluded(): Unit = {
+    Seq("0", "300").foreach { timeout =>
+      withIoTimeouts(timeout, "0") {
+        withServer { server =>
+          val entered = new CountDownLatch(1)
+          val read = new CountDownLatch(1)
+          server.createContext("/", new HttpHandler {
+            override def handle(exchange: HttpExchange): Unit = {
+              entered.countDown()
+              if (timeout != "0") read.await(3, TimeUnit.SECONDS)
+              respond(exchange, new String(readAll(exchange.getRequestBody()), ISO_8859_1))
+            }
+          })
+          server.start()
+          withClient(server) { socket =>
+            val output = socket.getOutputStream()
+            output.write(requestBytes("/", "POST", "Connection: close\r\nContent-Length: 1\r\n"))
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            Thread.sleep(600)
+            output.write('a')
+            read.countDown()
+            assertEquals("a", readResponse(socket.getInputStream()).body)
+            assertConnectionClosed(socket)
+          }
+        }
+      }
+    }
+  }
+
+  @Test def stalledResponseWriteExpiresAndServerRecovers(): Unit = blockedWriterExpires(false)
+
+  @Test def disabledWriteTimeoutWaitsUntilClientDisconnects(): Unit = blockedWriterExpires(true)
+
+  @Test def validatesBodyAndWriteTimeoutConfiguration(): Unit = {
+    Seq("-1", "invalid", "2147483648", "").foreach { value =>
+      withIoTimeouts(value, "0") {
+        assertThrows(classOf[IllegalArgumentException], () => HttpServer.create())
+      }
+      withIoTimeouts("0", value) {
+        assertThrows(classOf[IllegalArgumentException], () => HttpServer.create())
+      }
+    }
+  }
+
+  @Test def stopJoinsTheOwnedWriteWatchdog(): Unit = {
+    def watchdogs(): Set[Thread] = {
+      var threads = new Array[Thread](math.max(16, Thread.activeCount() * 2))
+      var count = Thread.enumerate(threads)
+      while (count == threads.length) {
+        threads = new Array[Thread](threads.length * 2)
+        count = Thread.enumerate(threads)
+      }
+      threads.take(count).filter(_.getName() == "httpserver-write-timeouts").toSet
+    }
+    val before = watchdogs()
+    withIoTimeouts("300", "300") {
+      withServer { server =>
+        server.start()
+        val owned = watchdogs() -- before
+        assertEquals(1, owned.size)
+        server.stop(0)
+        owned.foreach(thread => assertFalse("Watchdog survived stop", thread.isAlive()))
+        server.stop(0)
+      }
+    }
+    assertEquals(before, watchdogs())
+    withIoTimeouts("0", "0") {
+      withServer { server => server.start(); assertEquals(before, watchdogs()) }
+    }
+  }
+
+  private def stalledBodyReadExpires(fields: String, body: String): Unit = withIoTimeouts("300", "300") {
+    withServer { server =>
+      System.setProperty("org.scalanative.httpserver.bodyReadTimeoutMillis", "30000")
+      val failed = new CountDownLatch(1)
+      server.createContext("/read", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = {
+          try readAll(exchange.getRequestBody())
+          catch { case _: IOException =>
+            failed.countDown()
+            // Deliberately retain control after the error: expiry itself must close the socket.
+            Thread.sleep(600)
+          }
+        }
+      })
+      server.start()
+      withClient(server) { socket =>
+        socket.getOutputStream().write(requestBytes("/read", "POST", fields, body))
+        assertTrue("Body read did not time out", failed.await(2, TimeUnit.SECONDS))
+        assertConnectionClosed(socket)
+      }
+      assertEquals(404, request(server, "/missing").status)
+    }
+  }
+
+  private def blockedWriterExpires(disabled: Boolean): Unit = {
+    val timeout = if (disabled) "0" else "300"
+    withIoTimeouts("300", timeout) {
+      withServer { server =>
+        val laterTimeout = if (disabled) "300" else "30000"
+        System.setProperty("org.scalanative.httpserver.writeTimeoutMillis", laterTimeout)
+        val failed = new CountDownLatch(1)
+        val entered = new CountDownLatch(1)
+        server.createContext("/ready", textHandler("ready"))
+        server.createContext("/blocked", new HttpHandler {
+          override def handle(exchange: HttpExchange): Unit = {
+            exchange.sendResponseHeaders(200, 64L * 1024 * 1024)
+            val block = new Array[Byte](8192)
+            entered.countDown()
+            try {
+              var remaining = 8192
+              while (remaining > 0) { exchange.getResponseBody().write(block); remaining -= 1 }
+              exchange.close()
+            } catch { case _: IOException => failed.countDown() }
+          }
+        })
+        server.start()
+        withClient(server) { socket =>
+          socket.setReceiveBufferSize(1024)
+          socket.getOutputStream().write(requestBytes("/blocked"))
+          assertTrue(entered.await(2, TimeUnit.SECONDS))
+          if (disabled) {
+            assertFalse("Disabled write timeout aborted the response", failed.await(700, TimeUnit.MILLISECONDS))
+            socket.close()
+          }
+          assertTrue("Blocked writer did not fail", failed.await(3, TimeUnit.SECONDS))
+        }
+        assertEquals("ready", request(server, "/ready").body)
+      }
+    }
+  }
+
+  private def withIoTimeouts(body: String, write: String)(test: => Unit): Unit = {
+    withSystemProperty("org.scalanative.httpserver.bodyReadTimeoutMillis", body) {
+      withSystemProperty("org.scalanative.httpserver.writeTimeoutMillis", write)(test)
+    }
+  }
+
   @Test def stalledInitialHeadExpiresAndServerRecovers(): Unit = withHeaderTimeout("300") {
     withServer { server =>
       server.createContext("/", textHandler("ready"))
@@ -80,7 +267,10 @@ class HttpServerTest {
   }
 
   private def withHeaderTimeout(value: String)(test: => Unit): Unit = {
-    val property = "org.scalanative.httpserver.headerTimeoutMillis"
+    withSystemProperty("org.scalanative.httpserver.headerTimeoutMillis", value)(test)
+  }
+
+  private def withSystemProperty(property: String, value: String)(test: => Unit): Unit = {
     val previous = System.getProperty(property)
     System.setProperty(property, value)
     try test

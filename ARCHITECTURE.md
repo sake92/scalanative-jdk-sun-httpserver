@@ -45,7 +45,8 @@ flowchart TD
 | `ResponseHeadWriter` | Validates and serializes response headers and selects response body framing. |
 | `FixedLengthInputStream`, `ChunkedInputStream` | Expose request body bytes without consuming the next request on the connection. |
 | `FixedLengthOutputStream`, `ChunkedOutputStream` | Enforce an exact response length or encode a chunked response. |
-| `ConnectionPolicy` | Connection persistence rules and the limits for idle reads and draining unread bodies. |
+| `ConnectionPolicy` | Connection persistence rules, configured I/O limits and unread-body drain bounds. |
+| `WriteTimeouts` | One server-owned thread watches pending socket output calls and closes sockets whose write deadlines expire. |
 | `HttpSyntax` | Shared HTTP token and field-value checks used by parsing and serialization. |
 
 ## From an accepted connection to a response
@@ -181,9 +182,9 @@ idle wait on persistent connections. A stream wrapper checks monotonic elapsed
 time on every parser read, including buffered bytes, and adjusts the socket read
 timeout to the remaining budget. Progress does not renew the deadline. Expiry
 closes the connection without attempting a potentially blocking error response.
-After parsing, the socket timeout is cleared for application body reads. The
-duration is snapshotted at server construction; configuration and defaults are
-in [Compatibility](COMPATIBILITY.md#protocol-and-security-limits).
+After parsing, the socket timeout is set to the configured body-read allowance.
+These durations are snapshotted at server construction; configuration and
+defaults are in [Compatibility](COMPATIBILITY.md#protocol-and-security-limits).
 The server never shuts down a caller-supplied executor; its lifecycle belongs to
 the application.
 
@@ -203,6 +204,30 @@ maximum duration; their defaults do not establish suitable values for this serve
 If deployment evidence calls for earlier rejection, a minimum rate can be
 evaluated alongside admission limits. The header deadline alone does not limit
 connection arrivals, queued work or body/write stalls.
+
+### Body reads and socket writes
+
+The body-read allowance uses the socket's read timeout. It bounds each blocking
+socket read rather than the duration of an application read, body or exchange.
+The framing streams may perform several socket reads for one application call;
+they still cover chunk metadata and trailers. A timeout closes the socket before
+propagating the error, so a handler catching it cannot reuse the connection.
+Unread-body cleanup retains its separate absolute drain deadline; failure there
+prevents reuse but still allows a buffered response to finish before socket closure.
+
+Socket read timeouts do not bound writes. `WriteTimeouts` wraps socket output
+below the connection's buffer, so response heads, bodies, interim responses and
+error responses share the same protection. Each socket output call registers a
+monotonic deadline, then unregisters it on completion. The watcher sleeps until
+the nearest pending deadline or a change to pending work; expiry closes the
+socket to unblock its writer. A completion check also rejects a write returning
+after its deadline. No deadline runs between output calls, allowing streaming
+handlers to pause while doing application work.
+
+The server starts one watcher before its accept thread and retains both thread
+handles. With write timeouts disabled, no watcher starts. Shutdown closes sockets,
+signals the watcher and joins owned threads under a shared cleanup budget.
+Startup failure uses the same shutdown path. Caller executors are unaffected.
 
 ## Finishing an exchange and stopping the server
 
@@ -227,5 +252,6 @@ sending another response.
 running an exchange. `stop(delay)` closes the listener and idle connections,
 allows active handlers up to the requested delay, then closes the remaining
 sockets. It interrupts and joins its owned accept thread with a bounded cleanup
-wait. Caller-owned workers are not interrupted, and an uncooperative handler
-can outlive shutdown cleanup. Stopping is terminal: the server cannot restart.
+wait shared with the write watcher. Caller-owned workers are not interrupted,
+and an uncooperative handler can outlive shutdown cleanup. Stopping is terminal:
+the server cannot restart.
