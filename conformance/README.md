@@ -145,6 +145,13 @@ Case names: `silent`, `request-line`, `headers`, `idle-drip`, `fixed-body`,
 `chunk-data`, `trailers`, `response-reader`, `shutdown-read`, `shutdown-write`.
 For JDK comparisons, substitute the JVM server command above.
 
+The current `idle-drip` case requires the connection to survive all 32 seconds.
+Native's default header deadline now closes it earlier, so the case's survival
+assertion is outdated. Updating this diagnostic to record expected timeout closure
+and rerunning the baseline remain in [TODO.md](../TODO.md). Existing external
+results predate the timeout changes; current timeout evidence is in the
+[Native regression results](REPORT.md#native-timeout-regressions).
+
 ### slowhttptest 1.9.0
 
 Requires a C++ compiler, Make and OpenSSL development libraries.

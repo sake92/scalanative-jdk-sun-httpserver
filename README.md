@@ -1,12 +1,7 @@
 # scalanative-jdk-sun-httpserver
 
-Apache-2.0 implementation of `com.sun.net.httpserver` for Scala Native, using blocking I/O. 
-
-Supports contexts, filters, Basic authentication, stream wrapping, 
-fixed-length/chunked bodies, HEAD, `100 Continue`, 
-persistent connections and sequential pipelining.
-
-Targets the JDK 8 HTTP API and measured Temurin 8u482 behavior.
+Apache-2.0 implementation of `com.sun.net.httpserver` for Scala Native, using
+blocking I/O. Targets the JDK 8 HTTP API and measured Temurin 8u482 behavior.
 
 ## Documentation
 
@@ -41,3 +36,18 @@ HTTP_SERVER_TEST_JAVA_HOME="$HOME/.sdkman/candidates/java/8.0.482-tem" \
 ```
 
 Repeat with `2.12.21`; Scala 3.9.0 cannot run on Java 8.
+
+## Configure timeouts
+
+Set system properties in application code before creating the server:
+
+```scala
+System.setProperty("org.scalanative.httpserver.headerTimeoutMillis", "15000")
+System.setProperty("org.scalanative.httpserver.bodyReadTimeoutMillis", "60000")
+System.setProperty("org.scalanative.httpserver.writeTimeoutMillis", "60000")
+val server = com.sun.net.httpserver.HttpServer.create()
+```
+
+Each server captures its settings at construction. See
+[timeout defaults and semantics](COMPATIBILITY.md#timeout-configuration) for valid
+values, streaming behavior and remaining limits.

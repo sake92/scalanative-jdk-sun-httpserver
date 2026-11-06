@@ -47,9 +47,11 @@ An earlier fixture TERM run hit a Native `PosixThread.park` assertion; investiga
 | --- | --- |
 | `sbt +testFull`, Scala 2.12.21 / 2.13.18 / 3.9.0 | 155/155 per version |
 
-- Six direct JUnit tests cover stalled/dripping initial and subsequent heads, recovery, body reads beyond the header budget, fresh deadlines and configuration; five failed before implementation. Host-JDK and external suites were not rerun for this change.
-- Two additional socket tests accept valid initial and subsequent heads sent in four fragments with 300 ms pauses within a two-second budget; synthetic local clients only, not deployment-rate measurements. Minimum ingress rates remain disabled; [policy rationale](../ARCHITECTURE.md#why-there-is-no-minimum-header-ingress-rate).
-- Ten body/write tests cover stalled fixed/chunked bodies and trailers, blocked writers and recovery, streaming, disabled limits, configuration snapshots, watchdog cleanup and flushing buffered responses after drain failure; five behavior cases failed before implementation, and the drain case caught an intermediate regression. Host-JDK and external suites were not rerun.
+- Six header tests cover stalled/dripping heads, recovery, body-read isolation, fresh budgets and configuration; five failed before implementation.
+- Two acceptance tests send valid heads in four fragments, 300 ms apart, within a two-second budget; synthetic clients only. Minimum rates remain disabled ([rationale](../ARCHITECTURE.md#why-there-is-no-minimum-header-ingress-rate)).
+- Ten body/write tests cover stalls, recovery, streaming, disabled limits, settings, watchdog cleanup and buffered responses after drain failure; five behavior cases failed before implementation, and the drain case caught an intermediate regression.
+
+Host-JDK and external suites were not rerun for the timeout changes.
 
 Raw logs, resource samples and tool reports stay untracked in
 `target/conformance-results/` and may be removed during cleanup.

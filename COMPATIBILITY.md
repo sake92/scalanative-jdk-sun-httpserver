@@ -51,23 +51,24 @@ JDK 21 differences in these areas are asserted explicitly by the shared tests.
 | Shutdown | Terminal; closes idle sockets, gives active handlers `delay` seconds, closes remaining sockets, then joins owned accept/watchdog threads within a shared 500 ms budget. Uncooperative handlers may outlive cleanup |
 | Exchanges | Attributes are local overrides over context defaults; filters are snapshotted; handler return triggers cleanup; missing response produces 500 |
 
-The `org.scalanative.httpserver.headerTimeoutMillis` system property configures
-the header deadline. Each server snapshots the property at construction through
-`HttpServer.create()`; it must be an integer from 1 to 2147483647
-milliseconds (default 30000). Invalid values cause `IllegalArgumentException`.
+### Timeout configuration
+
+Each server snapshots these system properties at construction through
+`HttpServer.create()`. Values are integer milliseconds; invalid values cause
+`IllegalArgumentException`.
+
+| Property under `org.scalanative.httpserver.` | Default | Valid range | Scope |
+| --- | --- | --- | --- |
+| `headerTimeoutMillis` | 30000 | 1–2147483647 | Absolute deadline for each complete request head |
+| `bodyReadTimeoutMillis` | 30000 | 0–2147483647 | Each blocking body socket read; 0 disables |
+| `writeTimeoutMillis` | 30000 | 0–2147483647 | Each socket output call; 0 disables |
+
 The deadline starts when a worker begins reading each head, including subsequent
 heads on persistent connections, and is not renewed by incoming bytes. Executor
 queue time is excluded. This deliberately bounds header reads that previously
 could continue indefinitely while a client dripped bytes. There is no minimum
 ingress rate; legitimate clients must finish each head within the configured
 budget. Request bodies and response streaming are outside this header deadline.
-
-The `org.scalanative.httpserver.bodyReadTimeoutMillis` and
-`org.scalanative.httpserver.writeTimeoutMillis` system properties set the body
-socket-read timeout and socket-write deadline, respectively. Each defaults to
-30000 milliseconds and is snapshotted at server construction. Values must be
-integers from 0 to 2147483647; 0 disables that timeout. Invalid values cause
-`IllegalArgumentException`.
 
 Body timeouts apply to socket reads, including chunk framing and trailers.
 Successful socket reads renew that allowance; one application read or skip may
@@ -98,9 +99,11 @@ shutdown. Passing cases do not establish complete conformance. Commands are in
 
 External checks: [h1spec and Http11Probe results](conformance/REPORT.md), including
 the JDK reference comparisons and the remaining disputed empty-Host verdict.
-The [slow-client baseline](conformance/REPORT.md#slow-client-baseline) confirms
-starvation under pressure, recovery after disconnect and bounded shutdown;
-it does not establish DoS resilience.
+The [slow-client baseline](conformance/REPORT.md#slow-client-baseline) predates
+the timeout changes and recorded starvation under pressure, recovery after
+disconnect and bounded shutdown. Current timeout behavior has direct JUnit
+coverage; the external baseline still needs updating and rerunning. These checks
+do not establish DoS resilience.
 
 Unverified: macOS/Windows, release-mode builds, sustained or large-scale load testing,
 Java binary compatibility and direct protected-realm mutation

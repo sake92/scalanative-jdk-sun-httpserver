@@ -10,9 +10,9 @@ Agree on limits and configuration before implementation; preserve the JDK 8 publ
 
 - [ ] Define connection admission, queued-work bounds and overload behavior.
 - [ ] Decide whether upload-size limits belong in the server or application handlers.
-- [ ] Turn each confirmed defect into a direct JUnit regression and validate the Native cross-build matrix.
 - [ ] Use the [OWASP DoS guidance](https://cheatsheetseries.owasp.org/cheatsheets/Denial_of_Service_Cheat_Sheet.html) to review coverage and document remaining limits.
-- [ ] Extend the bounded slow-client baseline to sustained load and legitimate slow/streaming clients when evaluating the agreed limits.
+- [ ] Update the slow-client runner to record expected timeout closures, including `idle-drip`, and rerun the external baseline with current limits.
+- [ ] Extend the bounded slow-client baseline to sustained load and representative slow/streaming traffic; retain the direct JUnit acceptance tests.
 
 ## Broader security coverage
 
