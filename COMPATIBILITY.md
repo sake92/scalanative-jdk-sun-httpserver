@@ -31,7 +31,7 @@ JDK convenience APIs are outside the current scope.
 
 JDK 21 differences in these areas are asserted explicitly by the shared tests.
 
-## Protocol and lifecycle
+## Protocol and security limits
 
 | Area | Behavior / limit |
 | --- | --- |
@@ -72,7 +72,8 @@ the JDK reference comparisons and the remaining disputed empty-Host verdict.
 Unverified: macOS/Windows, release-mode builds, load testing,
 Java binary compatibility and direct protected-realm mutation
 on Scala 2 (the host JDK 21 final field shadows the Native declaration).
-Upstream placement/acceptance remains undecided.
+Upstream placement/acceptance remains undecided. Outstanding work is tracked in
+[TODO.md](TODO.md).
 
 Source policy: independently written from published API contracts and
 [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110)/[9112](https://www.rfc-editor.org/rfc/rfc9112);

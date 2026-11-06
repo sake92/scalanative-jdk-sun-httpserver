@@ -7,9 +7,16 @@ fixed-length/chunked bodies, HEAD, `100 Continue`,
 persistent connections and sequential pipelining.
 
 Targets the JDK 8 HTTP API and measured Temurin 8u482 behavior.
-[Compatibility and limits](COMPATIBILITY.md) covers runtime quirks and exclusions.
-[Architecture](ARCHITECTURE.md) explains the request flow;
-[external HTTP checks](conformance/README.md) describes the independent protocol probes.
+
+## Documentation
+
+| Document | Purpose |
+| --- | --- |
+| [Compatibility and limits](COMPATIBILITY.md) | Current features, security limits, API quirks and exclusions |
+| [Architecture](ARCHITECTURE.md) | Request flow and thread ownership |
+| [External HTTP checks](conformance/README.md) | Pinned tools and reproducible commands |
+| [Conformance results](conformance/REPORT.md) | Measured results, fixes and disputed expectations |
+| [Planned improvements](TODO.md) | Outstanding testing and hardening checklist |
 
 ## Build and test
 

@@ -22,6 +22,14 @@
 - Keep Native results, host-JDK results and remote CI evidence distinct.
 - Keep downloaded suites, runtimes, build outputs and raw reports outside tracked sources.
 
+## Documentation maintenance
+
+- Keep current features, protections and limits in `COMPATIBILITY.md`; do not duplicate feature checklists elsewhere.
+- Track outstanding work as unchecked items in `TODO.md`; on completion, update the behavior reference and relevant evidence, then remove the task.
+- Keep `conformance/REPORT.md` compact: result tables and one-line findings under clear sections, retaining qualifications and evidence links.
+- Keep reproducible commands in `conformance/README.md` and implementation explanations in `ARCHITECTURE.md`.
+- Update the documentation index in `README.md` when adding or moving documents.
+
 ## References
 
 - `README.md`: build setup and pinned versions.
@@ -29,3 +37,4 @@
 - `COMPATIBILITY.md`: API contracts, protocol decisions and exclusions.
 - `conformance/README.md`: pinned external suites and reproducible commands.
 - `conformance/REPORT.md`: observed results and disputed expectations.
+- `TODO.md`: planned testing, hardening and portability work.
