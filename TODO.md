@@ -4,11 +4,10 @@ Unchecked items are outstanding work, not implemented protections or confirmed v
 Current behavior and limits live in [COMPATIBILITY.md](COMPATIBILITY.md); measured external results live in [conformance/REPORT.md](conformance/REPORT.md).
 Move completed behavior into the compatibility reference and validation evidence into the report; remove completed tasks here to avoid duplicate status lists.
 
-## First: hardening policy and implementation
+## Next: hardening validation
 
 Agree on limits and configuration before implementation; preserve the JDK 8 public API and caller ownership of executors.
 
-- [ ] Update the slow-client runner to record expected timeout closures, including `idle-drip`, and rerun the external baseline with current limits.
 - [ ] Extend the bounded slow-client baseline to sustained load and representative slow/streaming traffic.
 
 ## Broader security coverage

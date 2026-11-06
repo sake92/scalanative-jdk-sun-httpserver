@@ -58,7 +58,11 @@ object ConformanceRunner {
       @arg(
         name = "case",
         doc = "Repeatable slow-client scenario; omit to run all"
-      ) cases: Seq[String] = Seq.empty
+      ) cases: Seq[String] = Seq.empty,
+      @arg(
+        name = "idle-drip-expectation",
+        doc = "32-second drip result: observe, close or survive; slowclients only"
+      ) idleDripExpectation: String = "observe"
   ): Int = {
     try {
       require(
@@ -81,6 +85,15 @@ object ConformanceRunner {
       require(
         cases.isEmpty || suite == "slowclients",
         "--case requires --suite slowclients"
+      )
+      require(
+        Set("observe", "close", "survive").contains(idleDripExpectation),
+        "--idle-drip-expectation must be observe, close or survive"
+      )
+      require(
+        idleDripExpectation == "observe" ||
+          (suite == "slowclients" && (cases.isEmpty || cases.contains("idle-drip"))),
+        "--idle-drip-expectation requires a slowclients run containing idle-drip"
       )
       require(
         slow || (executor == "both" && duration == 3),
@@ -160,7 +173,8 @@ object ConformanceRunner {
           duration,
           cases,
           timeout,
-          revision
+          revision,
+          idleDripExpectation
         )
       else
         execute(

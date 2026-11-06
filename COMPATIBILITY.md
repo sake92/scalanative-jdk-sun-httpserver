@@ -178,11 +178,11 @@ complete conformance. Commands are in [README.md](README.md#build-and-test).
 
 External checks: [h1spec and Http11Probe results](conformance/REPORT.md), including
 the JDK reference comparisons and the remaining disputed empty-Host verdict.
-The [slow-client baseline](conformance/REPORT.md#slow-client-baseline) predates
-the timeout, admission and body-size changes and recorded starvation under pressure,
-recovery after disconnect and bounded shutdown. Current hardening has direct JUnit
-coverage; the external baseline still needs updating and rerunning. These checks
-do not establish DoS resilience.
+The refreshed [slow-client baseline](conformance/REPORT.md#slow-client-baseline)
+observes dripped-header closure on Native, continued ordinary-request starvation
+under short pressure windows, recovery after disconnect and bounded shutdown.
+Current hardening also has direct JUnit coverage. These bounded checks do not
+establish sustained-load behavior or DoS resilience.
 
 Unverified: macOS/Windows, release-mode builds, sustained or large-scale load testing,
 Java binary compatibility and direct protected-realm mutation

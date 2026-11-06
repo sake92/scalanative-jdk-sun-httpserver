@@ -1,0 +1,251 @@
+{
+  "date": "2026-11-06",
+  "library_commit": "f6e7ffb",
+  "runner_base_commit": "1bfe9f9",
+  "runner_source_state": "Runner changes uncommitted during measurements; stored in the accompanying snapshot commit. Later source changes only wrap lines.",
+  "runner_and_fixture_sha256": {
+    "conformance/run.scala": "10b5fd204ff3ee357b36044f28d5248651639b2330ff27e394538d668817c547",
+    "conformance/SlowClients.scala": "27c86b60232b01ef8952057064c7c71815d913c9f583fd9415c0d70f864b7f98",
+    "conformance/shared/ConformanceServer.scala": "c323ff431ed9e61dd4eb7daee98b57cede9d12bd794c2d96eeea8bc911d97107"
+  },
+  "native_binary_sha256": "0305e72c4ed369462cac25bfe95776bea0f84cfd651830f6b4b5d851cad53bcf",
+  "environment": {
+    "os": "Linux x86_64",
+    "scala_native": "0.5.12",
+    "native_scala": "3.9.0",
+    "reference_scala": "2.13.18",
+    "jdk8": "Temurin 8u482",
+    "jdk21": "Temurin 21.0.10"
+  },
+  "slowhttptest_revision": "17e8bd195e8c7fd3e0e925686c051e4d591c838f",
+  "scope": "Bounded loopback runs; three-second socket windows except 32-second idle-drip; five-second tool runs. Targets ran concurrently; no benchmark or sustained-load claim.",
+  "targets": {
+    "native": {
+      "sockets": {
+        "raw_run": "target/conformance-results/refresh-native-sockets/run.json",
+        "complete": 20,
+        "total": 20,
+        "pressure_probes_ok": 135,
+        "pressure_probes_total": 311,
+        "max_recovery_ms": 102.78794,
+        "max_shutdown_ms": 206.656403,
+        "peak_rss_kib": 17184,
+        "peak_threads": 5,
+        "peak_fds": 10,
+        "idle_drip": [
+          {
+            "executor": "default",
+            "outcome": "closed",
+            "observed_seconds": 32.172126634,
+            "connections": [
+              {
+                "state": "closed",
+                "closed_observed_ms": 30145.78598
+              }
+            ]
+          },
+          {
+            "executor": "bounded",
+            "outcome": "closed",
+            "observed_seconds": 32.140333592,
+            "connections": [
+              {
+                "state": "closed",
+                "closed_observed_ms": 30124.63183
+              }
+            ]
+          }
+        ],
+        "failures": []
+      },
+      "slowhttptest": {
+        "raw_run": "target/conformance-results/refresh-native-slowhttptest/run.json",
+        "complete": 6,
+        "total": 6,
+        "pressure_probes_ok": 5,
+        "pressure_probes_total": 95,
+        "max_recovery_ms": 2.574182,
+        "max_shutdown_ms": 191.087629,
+        "peak_rss_kib": 15740,
+        "peak_threads": 5,
+        "peak_fds": 10,
+        "idle_drip": [],
+        "failures": []
+      }
+    },
+    "jdk8": {
+      "sockets": {
+        "raw_run": "target/conformance-results/refresh-jdk8-sockets/run.json",
+        "complete": 19,
+        "total": 20,
+        "pressure_probes_ok": 172,
+        "pressure_probes_total": 272,
+        "max_recovery_ms": 602.643782,
+        "max_shutdown_ms": 245.228903,
+        "peak_rss_kib": 72412,
+        "peak_threads": 24,
+        "peak_fds": 21,
+        "idle_drip": [
+          {
+            "executor": "default",
+            "outcome": "survived",
+            "observed_seconds": 32.350221981,
+            "connections": [
+              {
+                "state": "waiting"
+              }
+            ]
+          },
+          {
+            "executor": "bounded",
+            "outcome": "survived",
+            "observed_seconds": 32.237535003,
+            "connections": [
+              {
+                "state": "waiting"
+              }
+            ]
+          }
+        ],
+        "failures": [
+          {
+            "executor": "bounded",
+            "scenario": "trailers",
+            "error": "java.lang.IllegalArgumentException: requirement failed: Worker/queue saturation was not reached",
+            "pressure_connections": [
+              {
+                "state": "closed",
+                "closed_observed_ms": 499.524927
+              },
+              {
+                "state": "closed",
+                "closed_observed_ms": 499.547365
+              },
+              {
+                "state": "closed",
+                "closed_observed_ms": 499.552423
+              },
+              {
+                "state": "closed",
+                "closed_observed_ms": 499.55708
+              }
+            ],
+            "pool_saturation_observed": false
+          }
+        ]
+      },
+      "slowhttptest": {
+        "raw_run": "target/conformance-results/refresh-jdk8-slowhttptest/run.json",
+        "complete": 6,
+        "total": 6,
+        "pressure_probes_ok": 5,
+        "pressure_probes_total": 59,
+        "max_recovery_ms": 2.852634,
+        "max_shutdown_ms": 218.613549,
+        "peak_rss_kib": 59936,
+        "peak_threads": 24,
+        "peak_fds": 32,
+        "idle_drip": [],
+        "failures": []
+      }
+    },
+    "jdk21": {
+      "sockets": {
+        "raw_run": "target/conformance-results/refresh-jdk21-sockets/run.json",
+        "complete": 19,
+        "total": 20,
+        "pressure_probes_ok": 173,
+        "pressure_probes_total": 329,
+        "max_recovery_ms": 104.373646,
+        "max_shutdown_ms": 234.064214,
+        "peak_rss_kib": 80772,
+        "peak_threads": 29,
+        "peak_fds": 14,
+        "idle_drip": [
+          {
+            "executor": "default",
+            "outcome": "survived",
+            "observed_seconds": 32.345882567,
+            "connections": [
+              {
+                "state": "waiting"
+              }
+            ]
+          },
+          {
+            "executor": "bounded",
+            "outcome": "survived",
+            "observed_seconds": 32.013381647,
+            "connections": [
+              {
+                "state": "waiting"
+              }
+            ]
+          }
+        ],
+        "failures": [
+          {
+            "executor": "bounded",
+            "scenario": "trailers",
+            "error": "java.lang.IllegalArgumentException: requirement failed: Worker/queue saturation was not reached",
+            "pressure_connections": [
+              {
+                "state": "closed",
+                "closed_observed_ms": 0.891973
+              },
+              {
+                "state": "closed",
+                "closed_observed_ms": 0.90459
+              },
+              {
+                "state": "closed",
+                "closed_observed_ms": 1.047476
+              },
+              {
+                "state": "closed",
+                "closed_observed_ms": 1.069656
+              }
+            ],
+            "pool_saturation_observed": false
+          }
+        ]
+      },
+      "slowhttptest": {
+        "raw_run": "target/conformance-results/refresh-jdk21-slowhttptest/run.json",
+        "complete": 6,
+        "total": 6,
+        "pressure_probes_ok": 5,
+        "pressure_probes_total": 95,
+        "max_recovery_ms": 3.830469,
+        "max_shutdown_ms": 193.083286,
+        "peak_rss_kib": 74064,
+        "peak_threads": 23,
+        "peak_fds": 15,
+        "idle_drip": [],
+        "failures": []
+      }
+    }
+  },
+  "expectation_controls": {
+    "native-wrong-expectation": {
+      "raw_run": "target/conformance-results/refresh-native-wrong-expectation/run.json",
+      "expectation": "survive",
+      "complete": false,
+      "idle_drip_outcome": "closed",
+      "error": "java.lang.IllegalArgumentException: requirement failed: Expected dripped connection to survive the observation window"
+    },
+    "jdk21-wrong-expectation": {
+      "raw_run": "target/conformance-results/refresh-jdk21-wrong-expectation/run.json",
+      "expectation": "close",
+      "complete": false,
+      "idle_drip_outcome": "survived",
+      "error": "java.lang.IllegalArgumentException: requirement failed: Expected dripped connection to close within the observation window"
+    },
+    "native-observe": {
+      "raw_run": "target/conformance-results/refresh-native-observe/run.json",
+      "expectation": "observe",
+      "complete": true,
+      "idle_drip_outcome": "closed"
+    }
+  }
+}

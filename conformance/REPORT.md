@@ -4,8 +4,8 @@ Local Linux results: Scala Native 0.5.12 / Scala 3.9.0; reference fixture
 Scala 2.13.18 on Temurin 8u482 and 21.0.10.
 [Commands and pinned tools](README.md) · [Protocol policy](../COMPATIBILITY.md)
 
-External measurements predate the timeout, admission and body-size limits; current local
-regression results are listed separately below.
+Protocol measurements predate the timeout, admission and body-size limits.
+The slow-client baseline was refreshed with those changes; all results are local.
 
 ## Protocol checks
 
@@ -25,21 +25,24 @@ regression results are listed separately below.
 
 ## Slow-client baseline
 
-| Target | Socket cases completed | slowhttptest 1.9.0 runs completed |
-| --- | --- | --- |
-| Native | 20/20 | 6/6 |
-| JDK 8u482 | 19/20 | 6/6 |
-| JDK 21.0.10 | 19/20 | 6/6 |
+| Target | Socket cases completed | slowhttptest 1.9.0 completed | 32-second drip, both executors |
+| --- | --- | --- | --- |
+| Native | 20/20 | 6/6 | Closed; first observed at 30.12–30.15 s |
+| JDK 8u482 | 19/20 | 6/6 | Survived |
+| JDK 21.0.10 | 19/20 | 6/6 | Survived |
 
-- Native slow clients starved ordinary requests; disconnecting restored service within 104 ms. Shutdown with blocked reads/writes succeeded; all Native fixtures exited within 222 ms of the stop control.
-- Headers dripped over 32 seconds survived on all targets. Both JDK bounded-trailer cases failed to sustain the intended pressure state; these are setup failures, not protocol verdicts.
-- Default and two-worker/two-queue executors tested separately. Bounded local runs only; concurrent comparisons are not benchmarks or DoS-resilience evidence.
+- Library `f6e7ffb`, rebuilt fixtures and updated runner; [snapshot, source/binary hashes and raw-report paths](results/2026-11-06-slowclients-refresh.json).
+- Ordinary requests still failed under Native pressure; recovery after disconnect was within 103 ms, and all Native fixtures exited within 207 ms of stop control.
+- Both JDK bounded-trailer cases closed early without reaching worker/queue saturation; setup failures remain counted and return nonzero.
+- Default and two-worker/two-queue executors; four connections, three-second socket/five-second tool windows, except the 32-second drip. Concurrent local comparisons are not benchmarks, sustained-load checks or DoS-resilience evidence.
 
 ## Runner checks
 
-Startup failure, timeout, invalid arguments, output preservation and TERM cleanup
-checked; no test processes remained. Final Native h1spec rerun: 33/33.
+Earlier checks covered startup failure, timeout, invalid arguments, output preservation
+and TERM cleanup; no test processes remained. Earlier Native h1spec rerun: 33/33.
 An earlier fixture TERM run hit a Native `PosixThread.park` assertion; investigation remains in [TODO.md](../TODO.md).
+
+Refreshed runner: Native `close` and JDK `survive` expectations matched; both reversed expectations returned nonzero, and Native default `observe` completed. Help, invalid values, non-idle misuse and existing-output rejection checked; no fixture/tool processes remained.
 
 ## Native hardening regressions
 
@@ -53,7 +56,7 @@ An earlier fixture TERM run hit a Native `PosixThread.park` assertion; investiga
 - Seven admission tests cover queued/active/idle caps, pending-slot release at task start, rejection and head-failure recovery, disabled limits and construction-time settings; three failed before implementation.
 - Thirteen body-size tests cover declared/chunked limits, read/skip/drain paths, exact-limit pipelines, Expect/auth ordering, caught errors, blocking custom cleanup, disabled limits, settings and overflow; seven failed before implementation, and custom cleanup caught an intermediate regression.
 
-Host-JDK and external suites were not rerun for the timeout, admission or body-size changes.
+Host-JDK contract tests and external protocol suites were not rerun for these changes; slow-client results above were refreshed.
 
 [OWASP coverage review](../COMPATIBILITY.md#denial-of-service-review): residual worker starvation, unbounded connection/queue lifetimes, application work and deployment-level traffic controls remain explicit limits.
 

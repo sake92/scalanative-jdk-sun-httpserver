@@ -1,5 +1,5 @@
 import java.io.IOException
-import java.net.{InetSocketAddress, Socket}
+import java.net.{InetSocketAddress, Socket, SocketException, SocketTimeoutException}
 import java.nio.charset.StandardCharsets.US_ASCII
 import java.nio.file.{Files, Path}
 import java.util.concurrent.TimeUnit
@@ -32,7 +32,8 @@ object SlowClients {
       duration: Int,
       selected: Seq[String],
       timeout: Double,
-      revision: String
+      revision: String,
+      idleDripExpectation: String
   ): Int = {
     val modes =
       if (executor == "both") Seq("default", "bounded") else Seq(executor)
@@ -50,6 +51,7 @@ object SlowClients {
       "workers" -> 2,
       "queue_capacity" -> 2,
       "probe_deadline_ms" -> 500,
+      "idle_drip_expectation" -> idleDripExpectation,
       "results" -> results
     )
     try {
@@ -69,7 +71,8 @@ object SlowClients {
             name,
             duration,
             timeout,
-            result
+            result,
+            idleDripExpectation
           )
           result("complete") = true
         } catch {
@@ -102,7 +105,8 @@ object SlowClients {
       name: String,
       duration: Int,
       timeout: Double,
-      result: ujson.Obj
+      result: ujson.Obj,
+      idleDripExpectation: String
   ): Unit = {
     val stopFile = directory.resolve("stop").toAbsolutePath
     val log = directory.resolve("server.log")
@@ -119,6 +123,7 @@ object SlowClients {
     var external: Option[Process] = None
     val samples = ujson.Arr()
     val probes = ujson.Arr()
+    val writeCase = Set("response-reader", "shutdown-write", "X").contains(name)
     result("samples") = samples
     result("probes") = probes
     result("pid") = server.pid().toDouble
@@ -169,7 +174,10 @@ object SlowClients {
           sockets += socket
           if (name == "idle-drip") {
             send(socket, "GET /probe HTTP/1.1\r\nHost: localhost\r\n\r\n")
-            readResponse(socket, close = false)
+            require(
+              readResponse(socket, close = false),
+              "Idle preflight connection closed without a response"
+            )
           }
           val initial = name match {
             case "silent"                => ""
@@ -190,6 +198,35 @@ object SlowClients {
         result("opened_connections") = count
       }
       val started = System.nanoTime()
+      val initialState = if (writeCase) "unread" else "waiting"
+      val states = sockets.map(_ => ujson.Obj("state" -> initialState))
+      result("pressure_connections") = ujson.Arr.from(states)
+      def sampleConnections(): Unit = if (!writeCase) {
+        sockets.zip(states).foreach { case (socket, state) =>
+          if (state("state").str == "waiting") {
+            socket.setSoTimeout(1)
+            val closed = try {
+              val first = socket.getInputStream.read()
+              if (first == -1) true
+              else {
+                state("state") = "data"
+                state("first_byte") = first
+                false
+              }
+            } catch {
+              case _: SocketTimeoutException => false
+              case error: SocketException =>
+                state("close_error") = error.toString
+                true
+            }
+            if (closed) {
+              state("state") = "closed"
+              state("closed_observed_ms") =
+                (System.nanoTime() - started) / 1e6
+            }
+          }
+        }
+      }
       val seconds = if (name == "idle-drip") 32 else duration
       val deadline = started + TimeUnit.SECONDS.toNanos(seconds.toLong)
       val toolDeadline =
@@ -203,13 +240,16 @@ object SlowClients {
           Set("headers", "idle-drip", "request-line")
             .contains(name) && System.nanoTime() >= nextDrip
         ) {
-          sockets.foreach { socket =>
-            try send(socket, "x")
-            catch { case _: IOException => dripFailures += 1 }
+          sockets.zip(states).foreach { case (socket, state) =>
+            if (state("state").str == "waiting") {
+              try send(socket, "x")
+              catch { case _: IOException => dripFailures += 1 }
+            }
           }
           nextDrip = System.nanoTime() + TimeUnit.SECONDS.toNanos(1)
         }
         probes.value += probe(port)
+        sampleConnections()
         samples.value += resources(server.pid(), "pressure")
         Thread.sleep(250)
         pressure = external match {
@@ -224,6 +264,7 @@ object SlowClients {
       }
       result("observed_seconds") = (System.nanoTime() - started) / 1e9
       result("drip_write_failures") = dripFailures
+      sampleConnections()
       external.foreach { process =>
         result("tool_exit_code") = process.exitValue()
         require(process.exitValue() == 0, "slowhttptest failed; see tool.log")
@@ -237,8 +278,6 @@ object SlowClients {
       val bodyCase =
         Set("fixed-body", "chunk-data", "trailers", "shutdown-read", "B")
           .contains(name)
-      val writeCase =
-        Set("response-reader", "shutdown-write", "X").contains(name)
       if (bodyCase)
         require(text.contains("HANDLING /body"), "Body handler was not reached")
       if (writeCase) {
@@ -258,10 +297,37 @@ object SlowClients {
           "Worker/queue saturation was not reached"
         )
       if (name == "idle-drip") {
-        // Finish the head: a complete response proves this same connection survived >30s.
-        send(sockets.head, "\r\nConnection: close\r\n\r\n")
-        readResponse(sockets.head, close = true)
-        result("dripped_connection_survived") = true
+        val state = states.head
+        require(
+          state("state").str != "data",
+          "Server responded before the dripped request head was complete"
+        )
+        val survived = if (state("state").str == "closed") false
+        else {
+          try {
+            send(sockets.head, "\r\nConnection: close\r\n\r\n")
+            readResponse(sockets.head, close = true)
+          } catch {
+            case error: SocketException =>
+              state("close_error") = error.toString
+              false
+          }
+        }
+        val outcome = if (survived) "survived" else "closed"
+        if (!survived && state("state").str != "closed") {
+          state("state") = "closed"
+          state("closed_observed_ms") = (System.nanoTime() - started) / 1e6
+        }
+        result("idle_drip_outcome") = outcome
+        result("dripped_connection_survived") = survived
+        require(
+          idleDripExpectation != "close" || !survived,
+          "Expected dripped connection to close within the observation window"
+        )
+        require(
+          idleDripExpectation != "survive" || survived,
+          "Expected dripped connection to survive the observation window"
+        )
       }
       if (name.startsWith("shutdown-"))
         gracefulStop(server, stopFile, log, port, result)
@@ -345,7 +411,7 @@ object SlowClients {
       socket: Socket,
       close: Boolean,
       deadline: Long = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(500)
-  ): Unit = {
+  ): Boolean = {
     val input = socket.getInputStream
     val bytes = new java.io.ByteArrayOutputStream()
     var done = false
@@ -355,17 +421,20 @@ object SlowClients {
       socket.setSoTimeout(
         math.max(1, TimeUnit.NANOSECONDS.toMillis(left).toInt)
       )
-      val value = input.read()
+      val value = try input.read()
+      catch { case _: SocketException if bytes.size() == 0 => -1 }
       if (value == -1) done = true
       else bytes.write(value)
       val text = bytes.toString("US-ASCII")
       if (!close && text.endsWith("\r\n\r\nOK")) done = true
     }
     val text = bytes.toString("US-ASCII")
+    if (done && bytes.size() == 0) return false
     require(
       text.startsWith("HTTP/1.1 200 ") && text.endsWith("\r\n\r\nOK"),
       "Expected complete 200 response with body OK"
     )
+    true
   }
 
   private def probe(port: Int): ujson.Obj = {
@@ -378,11 +447,12 @@ object SlowClients {
           socket,
           "GET /probe HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
         )
-        readResponse(
+        val responded = readResponse(
           socket,
           close = true,
           deadline = started + TimeUnit.MILLISECONDS.toNanos(500)
         )
+        require(responded, "Connection closed without a response")
         result("ok") = true
       } finally socket.close()
     } catch { case NonFatal(error) => result("error") = error.toString }

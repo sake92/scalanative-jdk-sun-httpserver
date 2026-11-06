@@ -129,6 +129,7 @@ Build the fixture as above, then run the deterministic socket cases:
 ```sh
 scala run conformance/run.scala --server=false -- \
   --suite slowclients \
+  --idle-drip-expectation close \
   --server target/out/native0.5/scala-3.9.0/httpserver-conformance/http-conformance-server \
   --output target/conformance-results/slow-native
 ```
@@ -145,12 +146,20 @@ Case names: `silent`, `request-line`, `headers`, `idle-drip`, `fixed-body`,
 `chunk-data`, `trailers`, `response-reader`, `shutdown-read`, `shutdown-write`.
 For JDK comparisons, substitute the JVM server command above.
 
-The current `idle-drip` case requires the connection to survive all 32 seconds.
-Native's default header deadline now closes it earlier, so the case's survival
-assertion is outdated. Updating this diagnostic to record expected timeout closure
-and rerunning the baseline remain in [TODO.md](../TODO.md). Existing external
-results predate the timeout, admission and body-size limits; current hardening evidence is
-in the [Native regression results](REPORT.md#native-hardening-regressions).
+`--idle-drip-expectation observe|close|survive` controls only the 32-second
+diagnostic. The default `observe` records either closure or successful completion
+without imposing a target policy. `close` requires closure; `survive` requires a
+complete 200 response after finishing the dripped head. Mismatches return nonzero.
+The option requires a slowclients run containing `idle-drip` when non-default.
+For the pinned JDK 8/21 comparisons, replace `close` with `survive`.
+
+The JSON records each pressure connection as `waiting`, `closed`, or `data`
+(a response byte arrived before the runner completed the request). Closure times
+are first-observation times relative to the pressure window, sampled after
+ordinary probes; they do not establish an exact server deadline or its cause.
+Response-reader and blocked-write sockets are marked `unread` and never sampled,
+so observation does not relieve their backpressure. EOF/reset before any response
+is a closure; partial or malformed responses still fail validation.
 
 ### slowhttptest 1.9.0
 
@@ -186,4 +195,6 @@ body/write cases require observing two busy workers and two queued tasks;
 reference JDKs may fail to establish that state for incomplete trailers.
 
 These are bounded diagnostics, not sustained-load or DoS-resilience guarantees.
-`--duration` excludes startup, recovery and cleanup. See [results](REPORT.md).
+Four connections do not exhaust the server-wide admission caps. `--duration`
+excludes startup, recovery and cleanup. See [refreshed results](REPORT.md#slow-client-baseline)
+and [direct Native regressions](REPORT.md#native-hardening-regressions).
