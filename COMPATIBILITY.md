@@ -68,8 +68,11 @@ shutdown. Passing cases do not establish complete conformance. Commands are in
 
 External checks: [h1spec and Http11Probe results](conformance/REPORT.md), including
 the JDK reference comparisons and the remaining disputed empty-Host verdict.
+The [slow-client baseline](conformance/REPORT.md#slow-client-baseline) confirms
+starvation under pressure, recovery after disconnect and bounded shutdown;
+it does not establish DoS resilience.
 
-Unverified: macOS/Windows, release-mode builds, load testing,
+Unverified: macOS/Windows, release-mode builds, sustained or large-scale load testing,
 Java binary compatibility and direct protected-realm mutation
 on Scala 2 (the host JDK 21 final field shadows the Native declaration).
 Upstream placement/acceptance remains undecided. Outstanding work is tracked in

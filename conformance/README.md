@@ -121,3 +121,62 @@ actually executed is `total - skipped`. Do not sum `total` across category runs.
 The RFCs decide protocol correctness; JDK comparisons explain compatibility
 differences. A suite score is evidence about its particular cases, not proof of
 complete conformance. No load or performance claims follow from these runs.
+
+## Slow-client baseline (Linux)
+
+Build the fixture as above, then run the deterministic socket cases:
+
+```sh
+scala run conformance/run.scala --server=false -- \
+  --suite slowclients \
+  --server target/out/native0.5/scala-3.9.0/httpserver-conformance/http-conformance-server \
+  --output target/conformance-results/slow-native
+```
+
+Cases cover silent connections, partial/dripped heads, stalled fixed/chunked
+bodies and trailers, stopped response readers, recovery and blocked-I/O shutdown.
+Each uses a fresh loopback server with four pressure connections; `idle-drip`
+uses one keep-alive connection for 32 seconds. Both the default executor and a
+caller-owned two-worker/two-queue pool run by default.
+
+Use `--executor default|bounded` to select one mode, `--case NAME` (repeatable)
+to select cases, and `--duration 3` through `30` for the pressure window.
+Case names: `silent`, `request-line`, `headers`, `idle-drip`, `fixed-body`,
+`chunk-data`, `trailers`, `response-reader`, `shutdown-read`, `shutdown-write`.
+For JDK comparisons, substitute the JVM server command above.
+
+### slowhttptest 1.9.0
+
+Requires a C++ compiler, Make and OpenSSL development libraries.
+The Apache-2.0 suite is pinned to the commit below:
+
+```sh
+git clone https://github.com/shekyan/slowhttptest.git target/conformance-tools/slowhttptest
+git -C target/conformance-tools/slowhttptest checkout 17e8bd195e8c7fd3e0e925686c051e4d591c838f
+(cd target/conformance-tools/slowhttptest && ./configure && \
+  make -j2 ACLOCAL=true AUTOCONF=true AUTOMAKE=true AUTOHEADER=true)
+
+scala run conformance/run.scala --server=false -- \
+  --suite slowhttptest --checkout target/conformance-tools/slowhttptest \
+  --server target/out/native0.5/scala-3.9.0/httpserver-conformance/http-conformance-server \
+  --duration 5 --output target/conformance-results/slow-tool-native
+```
+
+The Make overrides use the supplied generated files without requiring the
+original Automake version. The runner checks the revision and tracked cleanliness,
+then runs slow headers, bodies and response readers with four pressure connections.
+`--timeout` caps external invocations; each also has a `duration + 5` second cap.
+
+### Interpreting the baseline
+
+Results include independent ordinary-request probes (500 ms deadline), sampled
+RSS/FD/thread counts, recovery and shutdown checks. Raw JSON/logs and external
+CSV/HTML reports stay in the new output directory.
+
+Availability failures during pressure are measurements. Setup failures or failure
+to recover or shut down within five seconds return nonzero. Bounded
+body/write cases require observing two busy workers and two queued tasks;
+reference JDKs may fail to establish that state for incomplete trailers.
+
+These are bounded diagnostics, not sustained-load or DoS-resilience guarantees.
+`--duration` excludes startup, recovery and cleanup. See [results](REPORT.md).

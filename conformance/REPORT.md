@@ -1,57 +1,42 @@
 # External HTTP/1.1 results — 2026-11-06
 
-Local Linux evidence only; no remote CI or upstream acceptance implied.
-[Commands and pinned tools](README.md) · [Machine-readable snapshot](results/2026-11-06.json) · [Protocol policy](../COMPATIBILITY.md) · [Planned work](../TODO.md)
+Local Linux results: Scala Native 0.5.12 / Scala 3.9.0; reference fixture
+Scala 2.13.18 on Temurin 8u482 and 21.0.10.
+[Commands and pinned tools](README.md) · [Protocol policy](../COMPATIBILITY.md)
 
-## Environment and scope
+## Protocol checks
 
-- Native: Scala Native 0.5.12, Scala 3.9.0; starting revision `eb0a942`, final results include the two fixes below.
-- Reference: shared application compiled with Scala 2.13.18, running on Temurin 8u482 and 21.0.10 without this implementation.
-- Http11Probe: 196 executed cases per target; 69 Compliance, 87 Smuggling, 26 MalformedInput, 5 Normalization, 9 Capabilities.
-- Scoring: 154 scored and 42 informational cases; Cookies and WebSockets excluded; no execution errors or unscored failures.
-
-## Results
-
-| Target | h1spec | Http11Probe scored pass | Scored warn | Scored fail |
+| Target | h1spec | Http11Probe pass | Warn | Fail |
 | --- | --- | --- | --- | --- |
 | Native before fixes | 33/33 | 137 | 14 | 3 |
 | Native after fixes | 33/33 | 139 | 14 | 1 |
 | JDK 8u482 | 26/33 | 97 | 19 | 38 |
 | JDK 21.0.10 | 25/33 | 97 | 19 | 38 |
 
-- Native Smuggling: 62 scored passes, 5 scored warnings, 8 informational passes, 12 informational warnings; no failures before or after fixes.
-- Warnings include accepted leading zeros and whitespace around Content-Length; they remain warnings, not passes.
-- These totals describe the selected probes, not complete conformance, deployment-chain smuggling resistance or DoS resilience.
+- Fixed oversized methods returning 414 instead of 501 and `OPTIONS *` returning 404 instead of 200; both have regressions.
+- Remaining Native failure: Http11Probe rejects empty Host, while Native and both JDKs accept it using the bound endpoint as default authority, permitted by [RFC 9112 §3.3](https://www.rfc-editor.org/rfc/rfc9112.html#section-3.3). The failure remains counted and the run returns nonzero.
+- Http11Probe: 154 scored and 42 informational cases per target; Cookies/WebSockets excluded. Warnings remain warnings; Native smuggling cases had no failures.
+- h1spec's single-read response checks caused some JDK body failures; separate complete-response reads succeeded without changing suite totals.
 
-## Confirmed fixes
+[Protocol snapshot](results/2026-11-06.json). Results cover these probes, not complete conformance or deployment-chain smuggling resistance.
 
-- `MAL-LONG-METHOD`: oversized methods now receive 501 instead of 414; oversized targets retain 414; reproduced by a 9 KB parser regression and the external 100 KB case ([RFC 9112 §3](https://www.rfc-editor.org/rfc/rfc9112.html#section-3)).
-- `COMP-OPTIONS-STAR`: `OPTIONS *` now receives an empty 200 and closes without invoking a resource handler; real-socket regression covers the former 404, also observed on both reference JDKs ([RFC 9110 §9.3.7](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.7)).
+## Slow-client baseline
 
-## Disputed expectation
+| Target | Socket cases completed | slowhttptest 1.9.0 runs completed |
+| --- | --- | --- |
+| Native | 20/20 | 6/6 |
+| JDK 8u482 | 19/20 | 6/6 |
+| JDK 21.0.10 | 19/20 | 6/6 |
 
-- `COMP-HOST-EMPTY-VALUE`: suite expects rejection; Native and both JDKs return 200 using the bound endpoint as default authority, permitted by [RFC 9112 §3.3](https://www.rfc-editor.org/rfc/rfc9112.html#section-3.3); missing, repeated and invalid Host fields remain rejected.
-- The empty-Host verdict is preserved as a failure, so the full core run returns nonzero.
+- Native slow clients starved ordinary requests; disconnecting restored service within 104 ms. Shutdown with blocked reads/writes succeeded; all Native fixtures exited within 222 ms of the stop control.
+- Headers dripped over 32 seconds survived on all targets. Both JDK bounded-trailer cases failed to sustain the intended pressure state; these are setup failures, not protocol verdicts.
+- Default and two-worker/two-queue executors tested separately. Bounded local runs only; concurrent comparisons are not benchmarks or DoS-resilience evidence.
 
-## Qualifications and runner checks
+## Runner checks
 
-- h1spec reads each response once; a separate complete-response reader verified exact fixed-length/chunked echoes on all targets, identifying some JDK body failures as reader artifacts without changing raw totals.
-- Other JDK failures include accepted malformed headers, unsupported version spellings and missing or duplicate Host fields.
-- Http11Probe exits zero for failed verdicts; the runner also checks JSON, including unscored failures, and preserves warnings and disputed results.
-- Range requests, ETags and compression describe application capabilities absent from the fixture, not necessarily transport defects.
-- Scala runner: h1spec 33/33 and all five Http11Probe category summaries reproduced.
-- Runner lifecycle: startup failure, probe timeout and TERM cancellation returned nonzero and released owned processes; cancellation left no server/probe processes.
-- Runner arguments: quoted executable paths, quoted JDK classpath, unknown options and existing-output rejection checked.
-- Runtime observation: Scala Native 0.5.12 `PosixThread.park` assertion during TERM shutdown while the fixture main thread waits on a latch; protocol probes had completed and process-group cleanup released workers.
+Startup failure, timeout, invalid arguments, output preservation and TERM cleanup
+checked; no test processes remained. Final Native h1spec rerun: 33/33.
+An earlier fixture TERM run hit a Native `PosixThread.park` assertion; investigation remains in [TODO.md](../TODO.md).
 
-## Raw evidence locations
-
-Build artifacts under `target/conformance-results/` are untracked and may be absent after cleanup; interrupted runs may contain partial reports.
-
-| Directory pattern | Evidence |
-| --- | --- |
-| `native-h1spec`, `native-http11probe` | Baseline |
-| `native-http11probe-after` | Method-length fix |
-| `native-h1spec-final`, `native-http11probe-final` | Both fixes |
-| `jdk-8.0.482-tem-*`, `jdk-21.0.10-tem-*` | Reference runs |
-| `scala-runner-*` | Scala runner parity and lifecycle checks |
+Raw logs, resource samples and tool reports stay untracked in
+`target/conformance-results/` and may be removed during cleanup.
