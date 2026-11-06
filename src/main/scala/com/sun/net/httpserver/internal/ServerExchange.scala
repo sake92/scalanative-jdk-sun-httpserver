@@ -142,7 +142,8 @@ private[httpserver] final class ServerExchange(
   }
 
   override def sendResponseHeaders(code: Int, length: Long): Unit = {
-    if (closed || committed) throw new IOException("Response already committed or closed")
+    if (closed) throw new IOException("Exchange is closed")
+    if (committed) throw new IOException("Response headers have already been sent")
     require(code >= 200 && code <= 599, "A final response status is required")
     committed = true
     responseCode = code

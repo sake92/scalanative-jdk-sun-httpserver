@@ -25,7 +25,8 @@ private[httpserver] object ResponseHeadWriter {
       responseLength: Long,
       headers: Headers
   ): Framing = {
-    if (output == null || headers == null) throw new NullPointerException()
+    if (output == null) throw new NullPointerException("output")
+    if (headers == null) throw new NullPointerException("headers")
     require(method != null && method.nonEmpty && method.forall(HttpSyntax.isToken), "Invalid method")
     require(version == "HTTP/1.0" || version == "HTTP/1.1", "Unsupported HTTP version")
     require(status >= 100 && status <= 599, "Invalid response status")

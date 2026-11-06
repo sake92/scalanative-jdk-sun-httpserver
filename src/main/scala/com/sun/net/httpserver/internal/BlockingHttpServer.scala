@@ -39,12 +39,15 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
   override def getExecutor(): Executor = lifecycle.synchronized { executor }
 
   override def setExecutor(value: Executor): Unit = lifecycle.synchronized {
-    if (started || stopped) throw new IllegalStateException("Server already started or stopped")
+    if (stopped) throw new IllegalStateException("Cannot set executor: server is stopped")
+    if (started) throw new IllegalStateException("Cannot set executor: server is already started")
     executor = value
   }
 
   override def start(): Unit = lifecycle.synchronized {
-    if (listener == null || started || stopped) throw new IllegalStateException("Server cannot start")
+    if (stopped) throw new IllegalStateException("Cannot start server: server is stopped")
+    if (started) throw new IllegalStateException("Cannot start server: server is already started")
+    if (listener == null) throw new IllegalStateException("Cannot start server: server is not bound")
     if (executor == null) executor = new Executor { override def execute(task: Runnable): Unit = task.run() }
     acceptThread = new Thread(new Runnable { override def run(): Unit = acceptLoop() }, "httpserver-accept")
     acceptThread.setDaemon(false)
@@ -71,12 +74,12 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
     while (iterator.hasNext()) {
       if (iterator.next().getPath() == path) { iterator.remove(); return }
     }
-    throw new IllegalArgumentException("Unknown context")
+    throw new IllegalArgumentException(s"No context is registered for path: $path")
   }
 
   override def removeContext(context: HttpContext): Unit = lifecycle.synchronized {
     if (context == null) throw new NullPointerException("context")
-    if (!contexts.remove(context)) throw new IllegalArgumentException("Unknown context")
+    if (!contexts.remove(context)) throw new IllegalArgumentException("Context is not registered with this server")
   }
 
   override def stop(delay: Int): Unit = {

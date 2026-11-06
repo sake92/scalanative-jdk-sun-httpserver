@@ -20,8 +20,10 @@ private[httpserver] object RequestHeadParser {
       headerSectionBytes: Int = 65536,
       headerCount: Int = 100
   ) {
-    require(requestLineBytes >= 0 && headerLineBytes >= 0)
-    require(headerSectionBytes >= 2 && headerCount >= 0)
+    require(requestLineBytes >= 0, "requestLineBytes must be at least 0")
+    require(headerLineBytes >= 0, "headerLineBytes must be at least 0")
+    require(headerSectionBytes >= 2, "headerSectionBytes must be at least 2")
+    require(headerCount >= 0, "headerCount must be at least 0")
   }
 
   final case class RequestHead(

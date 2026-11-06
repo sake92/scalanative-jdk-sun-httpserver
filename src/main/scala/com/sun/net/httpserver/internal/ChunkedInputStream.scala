@@ -11,8 +11,11 @@ private[httpserver] object ChunkedInputStream {
       trailerSectionBytes: Int = 65536,
       trailerCount: Int = 100
   ) {
-    require(chunkLineBytes >= 1 && extensionBytes >= 0)
-    require(trailerLineBytes >= 0 && trailerSectionBytes >= 2 && trailerCount >= 0)
+    require(chunkLineBytes >= 1, "chunkLineBytes must be at least 1")
+    require(extensionBytes >= 0, "extensionBytes must be at least 0")
+    require(trailerLineBytes >= 0, "trailerLineBytes must be at least 0")
+    require(trailerSectionBytes >= 2, "trailerSectionBytes must be at least 2")
+    require(trailerCount >= 0, "trailerCount must be at least 0")
   }
 }
 

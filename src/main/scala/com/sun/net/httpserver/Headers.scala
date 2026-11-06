@@ -32,7 +32,8 @@ class Headers private[httpserver] (private val entries: Map[String, List[String]
   }
 
   override def put(key: String, value: List[String]): List[String] = {
-    if (key == null || value == null) throw new NullPointerException("header")
+    if (key == null) throw new NullPointerException("header name")
+    if (value == null) throw new NullPointerException("header value list")
     val iterator = value.iterator()
     while (iterator.hasNext()) validateValue(iterator.next())
     entries.put(normalizeKey(key), value)
