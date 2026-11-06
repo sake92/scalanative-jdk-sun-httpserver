@@ -99,6 +99,10 @@ Routing uses the longest case-sensitive prefix of the raw path. For example,
 `/api/users` wins over `/api` for `/api/users/42`. Prefix matching is literal:
 `/api` also matches `/apix`, and percent-encoded paths are not decoded for routing.
 
+`OPTIONS *` is handled before resource routing: it asks about the server as a
+whole, so the server returns an empty 200 response and closes the connection
+without invoking a context's handler.
+
 ## Authentication, filters and the handler
 
 `ServerContext` checks that it has a handler, then runs its authenticator if one

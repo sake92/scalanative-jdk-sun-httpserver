@@ -41,6 +41,22 @@ class HttpServerTest {
     try assertNull(unbound.getAddress()) finally unbound.stop(0)
   }
 
+  @Test def handlesServerWideOptionsWithoutSelectingAContext(): Unit = withServer { server =>
+    val calls = new AtomicInteger()
+    server.createContext("/", new HttpHandler {
+      override def handle(exchange: HttpExchange): Unit = {
+        calls.incrementAndGet()
+        exchange.sendResponseHeaders(500, -1)
+      }
+    })
+    server.start()
+    val response = request(server, path = "*", method = "OPTIONS")
+    assertEquals(200, response.status)
+    assertEquals("", response.body)
+    assertEquals(Some(Vector("0")), response.headers.get("content-length"))
+    assertEquals(0, calls.get())
+  }
+
   @Test def routesLiteralPathsAndUpdatesContexts(): Unit = withServer { server =>
     val root = server.createContext("/app", textHandler("app"))
     server.createContext("/app/deep", textHandler("deep"))

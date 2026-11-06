@@ -65,6 +65,11 @@ class RequestHeadParserTest {
     rejected("GET / HTTP/1.0\r\nHost: x\r\nHost: x\r\n\r\n", 400)
   }
 
+  @Test def distinguishesOversizedMethodFromOversizedTarget(): Unit = {
+    rejected(("A" * 9000) + " / HTTP/1.1\r\nHost: x\r\n\r\n", 501)
+    rejected("GET /" + ("a" * 9000) + " HTTP/1.1\r\nHost: x\r\n\r\n", 414)
+  }
+
   @Test def selectsFixedLengthOrNoBody(): Unit = {
     assertEquals(NoBody, parse(request("", "POST")).framing)
     List("0" -> 0L, "0042" -> 42L, "9223372036854775807" -> Long.MaxValue).foreach {

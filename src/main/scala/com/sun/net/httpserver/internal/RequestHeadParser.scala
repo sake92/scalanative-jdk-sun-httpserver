@@ -42,7 +42,7 @@ private[httpserver] object RequestHeadParser {
   def read(input: InputStream, limits: Limits = Limits()): Option[RequestHead] = {
     val first = input.read()
     if (first == -1) return None
-    val line = readLine(input, first, limits.requestLineBytes, 414)
+    val line = readLine(input, first, limits.requestLineBytes, 414, requestLine = true)
     val firstSpace = line.indexOf(' ')
     val lastSpace = line.lastIndexOf(' ')
     if (firstSpace <= 0 || lastSpace <= firstSpace + 1)
@@ -82,13 +82,17 @@ private[httpserver] object RequestHeadParser {
     Some(RequestHead(method, target, version, headers, framing))
   }
 
-  private def readLine(input: InputStream, first: Int, maximum: Int, errorCode: Int): String = {
+  private def readLine(input: InputStream, first: Int, maximum: Int, errorCode: Int,
+      requestLine: Boolean = false): String = {
     val result = new java.lang.StringBuilder()
     var next = first
     while (next != '\r') {
       if (next == -1) fail(400, "Truncated request head")
       if (next == '\n') fail(400, "Bare LF in request head")
-      if (result.length() == maximum) fail(errorCode, "Request head line too long")
+      if (result.length() == maximum) {
+        if (requestLine && result.indexOf(" ") < 0) fail(501, "Request method too long")
+        fail(errorCode, "Request head line too long")
+      }
       result.append(next.toChar)
       next = input.read()
     }

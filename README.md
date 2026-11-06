@@ -8,6 +8,8 @@ persistent connections and sequential pipelining.
 
 Targets the JDK 8 HTTP API and measured Temurin 8u482 behavior.
 [Compatibility and limits](COMPATIBILITY.md) covers runtime quirks and exclusions.
+[Architecture](ARCHITECTURE.md) explains the request flow;
+[external HTTP checks](conformance/README.md) describes the independent protocol probes.
 
 ## Build and test
 

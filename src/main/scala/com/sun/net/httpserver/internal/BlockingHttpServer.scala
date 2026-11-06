@@ -195,6 +195,13 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
         errorResponse(output, 417)
         return false
       }
+      if (request.target == "*") {
+        val headers = new Headers()
+        headers.set("Connection", "close")
+        ResponseHeadWriter.write(output, request.method, request.version, 200, -1, headers)
+        output.flush()
+        return false
+      }
       val path = if (request.target.startsWith("/")) request.target.takeWhile(_ != '?')
       else Option(new URI(request.target).getRawPath()).getOrElse("")
       val context = lifecycle.synchronized {

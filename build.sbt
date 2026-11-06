@@ -23,3 +23,14 @@ lazy val root = project
     nativeConfig ~= (_.withMultithreading(true)),
     Test / parallelExecution := false
   )
+
+lazy val conformance = project
+  .in(file("conformance/native"))
+  .enablePlugins(ScalaNativePlugin)
+  .dependsOn(root)
+  .settings(
+    name := "httpserver-conformance",
+    publish / skip := true,
+    Compile / unmanagedSourceDirectories := Seq(baseDirectory.value.getParentFile / "shared"),
+    nativeConfig ~= (_.withMultithreading(true).withBaseName("http-conformance-server"))
+  )

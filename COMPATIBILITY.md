@@ -1,8 +1,14 @@
 # Compatibility
 
 Target: [JDK 8 HTTP API](https://docs.oracle.com/javase/8/docs/jre/api/net/httpserver/spec/com/sun/net/httpserver/package-summary.html),
-with measured Temurin 8u482 runtime behavior taking precedence over contradictory
-documentation. Full package and Java binary compatibility are unverified.
+with measured Temurin 8u482 runtime behavior used to clarify Java API contracts.
+HTTP wire behavior follows [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) and
+[RFC 9112](https://www.rfc-editor.org/rfc/rfc9112). Clear protocol bugs, especially
+security defects, are fixed rather than copied from the JDK; intentional
+differences are documented and tested. Where the RFC permits alternatives, a
+test suite's preferred result does not by itself require a change.
+This is this repository's policy, not a claim about Scala Native upstream policy.
+Full package and Java binary compatibility are unverified.
 
 ## API and runtime behavior
 
@@ -32,6 +38,9 @@ JDK 21 differences in these areas are asserted explicitly by the shared tests.
 | Requests | HTTP/1.0 and HTTP/1.1; rejects duplicate Content-Length, conflicting framing and malformed Connection options; only single `chunked` transfer coding on HTTP/1.1 |
 | Parsing bounds | Request/header/chunk lines: 8 KiB; header/trailer sections and cumulative chunk extensions: 64 KiB; header/trailer counts: 100; trailers discarded |
 | Routing | Longest case-sensitive raw-path prefix; percent encoding preserved; URI/Host spellings must be accepted by `java.net.URI` |
+| Server-wide OPTIONS | `OPTIONS *` returns an empty 200 and closes the connection without invoking a resource handler; measured JDK 8/21 behavior returns 404 |
+| Oversized method | A method that fills the request-line limit receives 501; oversized targets receive 414 |
+| Empty Host | Accepted using the bound server as the connection-based default authority; no Host-based virtual-server selection |
 | Responses | Final status 200–599; automatic lazy `100 Continue`; CONNECT receives 501; 101/upgrades rejected |
 | Body framing | Positive length is exact; zero is chunked on HTTP/1.1 or connection-delimited on HTTP/1.0; negative length is bodyless; HEAD/bodyless status rules override framing |
 | Persistence | HTTP/1.1 defaults to keep-alive; HTTP/1.0 requires opt-in; pipelined responses retain order |
@@ -48,7 +57,7 @@ Latest local results: Linux, Scala Native 0.5.12; Temurin 21.0.10 and 8u482.
 
 | Target | Scala | Passing tests |
 | --- | --- | --- |
-| Native | 2.12.21, 2.13.18, 3.9.0 | 135 per version |
+| Native | 2.12.21, 2.13.18, 3.9.0 | 137 per version |
 | JDK 8 reference | 2.12.21, 2.13.18 | 45 per version |
 | JDK 21 reference | 2.12.21, 2.13.18, 3.9.0 | 45 per version |
 
@@ -57,8 +66,11 @@ Native-only tests cover framing, malformed input, pipelining, drain limits and
 shutdown. Passing cases do not establish complete conformance. Commands are in
 [README.md](README.md#build-and-test).
 
-Unverified: macOS/Windows, release-mode builds, load testing, external HTTP
-conformance suites, Java binary compatibility and direct protected-realm mutation
+External checks: [h1spec and Http11Probe results](conformance/REPORT.md), including
+the JDK reference comparisons and the remaining disputed empty-Host verdict.
+
+Unverified: macOS/Windows, release-mode builds, load testing,
+Java binary compatibility and direct protected-realm mutation
 on Scala 2 (the host JDK 21 final field shadows the Native declaration).
 Upstream placement/acceptance remains undecided.
 

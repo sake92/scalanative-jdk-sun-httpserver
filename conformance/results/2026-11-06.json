@@ -1,0 +1,1067 @@
+{
+  "date": "2026-11-06",
+  "source_base": "eb0a942",
+  "source_state": "Uncommitted conformance harness and two HTTP fixes; see REPORT.md",
+  "environment": {
+    "os": "Linux x86_64",
+    "native_scala": "3.9.0",
+    "scala_native": "0.5.12",
+    "reference_scala": "2.13.18",
+    "jdk8": "Temurin 8u482",
+    "jdk21": "Temurin 21.0.10",
+    "deno": "2.5.6",
+    "dotnet_sdk": "10.0.100"
+  },
+  "pins": {
+    "h1spec": "f0a5650a20c575fbea0f7179a3a9cfa50f20ba6e",
+    "http11probe": "d50d818a0e008e9feb3bb9860ad5d9cc40342bc3"
+  },
+  "http11probe": {
+    "native-http11probe": {
+      "totals": {
+        "scored": 154,
+        "passed": 137,
+        "failed": 3,
+        "warnings": 14,
+        "errors": 0,
+        "executed": 196
+      },
+      "categories": {
+        "Compliance": {
+          "executed": 69,
+          "scored": 58,
+          "scored_pass": 52,
+          "scored_fail": 2,
+          "scored_warn": 4,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Pass": 57,
+            "Fail": 2,
+            "Warn": 10
+          },
+          "failures": [
+            {
+              "id": "COMP-OPTIONS-STAR",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 404,
+              "connectionState": "ClosedByServer",
+              "expected": "2xx or 405; close/timeout = warn"
+            },
+            {
+              "id": "COMP-HOST-EMPTY-VALUE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            }
+          ]
+        },
+        "Smuggling": {
+          "executed": 87,
+          "scored": 67,
+          "scored_pass": 62,
+          "scored_fail": 0,
+          "scored_warn": 5,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Pass": 70,
+            "Warn": 17
+          },
+          "failures": []
+        },
+        "MalformedInput": {
+          "executed": 26,
+          "scored": 25,
+          "scored_pass": 21,
+          "scored_fail": 1,
+          "scored_warn": 3,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Pass": 21,
+            "Fail": 1,
+            "Warn": 4
+          },
+          "failures": [
+            {
+              "id": "MAL-LONG-METHOD",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 414,
+              "connectionState": "ClosedByServer",
+              "expected": "400, 501 or close"
+            }
+          ]
+        },
+        "Normalization": {
+          "executed": 5,
+          "scored": 4,
+          "scored_pass": 2,
+          "scored_fail": 0,
+          "scored_warn": 2,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Warn": 2,
+            "Pass": 3
+          },
+          "failures": []
+        },
+        "Capabilities": {
+          "executed": 9,
+          "scored": 0,
+          "scored_pass": 0,
+          "scored_fail": 0,
+          "scored_warn": 0,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Warn": 7,
+            "Pass": 2
+          },
+          "failures": []
+        }
+      }
+    },
+    "native-http11probe-final": {
+      "totals": {
+        "scored": 154,
+        "passed": 139,
+        "failed": 1,
+        "warnings": 14,
+        "errors": 0,
+        "executed": 196
+      },
+      "categories": {
+        "Compliance": {
+          "executed": 69,
+          "scored": 58,
+          "scored_pass": 53,
+          "scored_fail": 1,
+          "scored_warn": 4,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Pass": 58,
+            "Warn": 10,
+            "Fail": 1
+          },
+          "failures": [
+            {
+              "id": "COMP-HOST-EMPTY-VALUE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            }
+          ]
+        },
+        "Smuggling": {
+          "executed": 87,
+          "scored": 67,
+          "scored_pass": 62,
+          "scored_fail": 0,
+          "scored_warn": 5,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Pass": 70,
+            "Warn": 17
+          },
+          "failures": []
+        },
+        "MalformedInput": {
+          "executed": 26,
+          "scored": 25,
+          "scored_pass": 22,
+          "scored_fail": 0,
+          "scored_warn": 3,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Pass": 22,
+            "Warn": 4
+          },
+          "failures": []
+        },
+        "Normalization": {
+          "executed": 5,
+          "scored": 4,
+          "scored_pass": 2,
+          "scored_fail": 0,
+          "scored_warn": 2,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Warn": 2,
+            "Pass": 3
+          },
+          "failures": []
+        },
+        "Capabilities": {
+          "executed": 9,
+          "scored": 0,
+          "scored_pass": 0,
+          "scored_fail": 0,
+          "scored_warn": 0,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Warn": 7,
+            "Pass": 2
+          },
+          "failures": []
+        }
+      }
+    },
+    "jdk-8.0.482-tem-http11probe": {
+      "totals": {
+        "scored": 154,
+        "passed": 97,
+        "failed": 38,
+        "warnings": 19,
+        "errors": 0,
+        "executed": 196
+      },
+      "categories": {
+        "Compliance": {
+          "executed": 69,
+          "scored": 58,
+          "scored_pass": 29,
+          "scored_fail": 20,
+          "scored_warn": 9,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Pass": 34,
+            "Warn": 15,
+            "Fail": 20
+          },
+          "failures": [
+            {
+              "id": "RFC9112-5.1-OBS-FOLD",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400"
+            },
+            {
+              "id": "RFC9112-3-MULTI-SP-REQUEST-LINE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 404,
+              "connectionState": "ClosedByServer",
+              "expected": "400 or 2xx; close/timeout = warn"
+            },
+            {
+              "id": "RFC9112-7.1-MISSING-HOST",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400"
+            },
+            {
+              "id": "RFC9112-2.3-INVALID-VERSION",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400/505, close, or timeout = warn"
+            },
+            {
+              "id": "RFC9112-3-CR-ONLY-LINE-ENDING",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, close, or timeout = warn"
+            },
+            {
+              "id": "RFC9110-5.4-DUPLICATE-HOST",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400"
+            },
+            {
+              "id": "RFC9112-6.1-CL-PLUS-SIGN",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "COMP-DUPLICATE-HOST-SAME",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400"
+            },
+            {
+              "id": "COMP-HOST-WITH-USERINFO",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "COMP-HOST-WITH-PATH",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "COMP-ASTERISK-WITH-GET",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 404,
+              "connectionState": "ClosedByServer",
+              "expected": "400, close, or timeout = warn"
+            },
+            {
+              "id": "COMP-OPTIONS-STAR",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 404,
+              "connectionState": "ClosedByServer",
+              "expected": "2xx or 405; close/timeout = warn"
+            },
+            {
+              "id": "COMP-HOST-EMPTY-VALUE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "COMP-VERSION-MISSING-MINOR",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, close, or timeout = warn"
+            },
+            {
+              "id": "COMP-VERSION-LEADING-ZEROS",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, close, or timeout = warn"
+            },
+            {
+              "id": "COMP-VERSION-WHITESPACE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, close, or timeout = warn"
+            },
+            {
+              "id": "COMP-CHUNKED-TRAILER-VALID",
+              "verdict": "Fail",
+              "scored": true,
+              "connectionState": "ClosedByServer",
+              "expected": "2xx + echo"
+            },
+            {
+              "id": "COMP-NO-1XX-HTTP10",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 100,
+              "connectionState": "ClosedByServer",
+              "expected": "non-1xx response"
+            },
+            {
+              "id": "COMP-VERSION-CASE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, close, or timeout = warn"
+            },
+            {
+              "id": "COMP-SPACE-IN-TARGET",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, close, or timeout = warn"
+            }
+          ]
+        },
+        "Smuggling": {
+          "executed": 87,
+          "scored": 67,
+          "scored_pass": 54,
+          "scored_fail": 8,
+          "scored_warn": 5,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Pass": 67,
+            "Warn": 12,
+            "Fail": 8
+          },
+          "failures": [
+            {
+              "id": "SMUG-TE-NOT-FINAL-CHUNKED",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 501,
+              "connectionState": "ClosedByServer",
+              "expected": "400 or close"
+            },
+            {
+              "id": "SMUG-CHUNK-BARE-SEMICOLON",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "SMUG-CHUNK-EXT-INVALID-TOKEN",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "SMUG-CHUNK-EXT-LF",
+              "verdict": "Fail",
+              "scored": true,
+              "connectionState": "TimedOut",
+              "expected": "400 or 2xx"
+            },
+            {
+              "id": "SMUG-CHUNK-EXT-CTRL",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "SMUG-CHUNK-EXT-CR",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "SMUG-CL-NEGATIVE-ZERO",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "SMUG-MULTIPLE-HOST-COMMA",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            }
+          ]
+        },
+        "MalformedInput": {
+          "executed": 26,
+          "scored": 25,
+          "scored_pass": 12,
+          "scored_fail": 10,
+          "scored_warn": 3,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Pass": 12,
+            "Fail": 10,
+            "Warn": 4
+          },
+          "failures": [
+            {
+              "id": "MAL-LONG-URL",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400/414/431 or close"
+            },
+            {
+              "id": "MAL-LONG-HEADER-VALUE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400/431 or close"
+            },
+            {
+              "id": "MAL-CONTROL-CHARS-HEADER",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "MAL-LONG-HEADER-NAME",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400/431 or close"
+            },
+            {
+              "id": "MAL-LONG-METHOD",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, 501 or close"
+            },
+            {
+              "id": "MAL-NON-ASCII-URL",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "MAL-WHITESPACE-ONLY-LINE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 404,
+              "connectionState": "ClosedByServer",
+              "expected": "400/close/timeout"
+            },
+            {
+              "id": "MAL-NUL-IN-HEADER-VALUE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "MAL-H2-PREFACE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 404,
+              "connectionState": "ClosedByServer",
+              "expected": "400/505/close/timeout"
+            },
+            {
+              "id": "MAL-URL-OVERLONG-UTF8",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            }
+          ]
+        },
+        "Normalization": {
+          "executed": 5,
+          "scored": 4,
+          "scored_pass": 2,
+          "scored_fail": 0,
+          "scored_warn": 2,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Warn": 2,
+            "Pass": 3
+          },
+          "failures": []
+        },
+        "Capabilities": {
+          "executed": 9,
+          "scored": 0,
+          "scored_pass": 0,
+          "scored_fail": 0,
+          "scored_warn": 0,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Warn": 7,
+            "Pass": 2
+          },
+          "failures": []
+        }
+      }
+    },
+    "jdk-21.0.10-tem-http11probe": {
+      "totals": {
+        "scored": 154,
+        "passed": 97,
+        "failed": 38,
+        "warnings": 19,
+        "errors": 0,
+        "executed": 196
+      },
+      "categories": {
+        "Compliance": {
+          "executed": 69,
+          "scored": 58,
+          "scored_pass": 29,
+          "scored_fail": 20,
+          "scored_warn": 9,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Pass": 34,
+            "Warn": 15,
+            "Fail": 20
+          },
+          "failures": [
+            {
+              "id": "RFC9112-5.1-OBS-FOLD",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400"
+            },
+            {
+              "id": "RFC9112-3-MULTI-SP-REQUEST-LINE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 404,
+              "connectionState": "ClosedByServer",
+              "expected": "400 or 2xx; close/timeout = warn"
+            },
+            {
+              "id": "RFC9112-7.1-MISSING-HOST",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400"
+            },
+            {
+              "id": "RFC9112-2.3-INVALID-VERSION",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400/505, close, or timeout = warn"
+            },
+            {
+              "id": "RFC9112-3-CR-ONLY-LINE-ENDING",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, close, or timeout = warn"
+            },
+            {
+              "id": "RFC9110-5.4-DUPLICATE-HOST",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400"
+            },
+            {
+              "id": "RFC9112-6.1-CL-PLUS-SIGN",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "COMP-DUPLICATE-HOST-SAME",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400"
+            },
+            {
+              "id": "COMP-HOST-WITH-USERINFO",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "COMP-HOST-WITH-PATH",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "COMP-ASTERISK-WITH-GET",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 404,
+              "connectionState": "ClosedByServer",
+              "expected": "400, close, or timeout = warn"
+            },
+            {
+              "id": "COMP-OPTIONS-STAR",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 404,
+              "connectionState": "ClosedByServer",
+              "expected": "2xx or 405; close/timeout = warn"
+            },
+            {
+              "id": "COMP-HOST-EMPTY-VALUE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "COMP-VERSION-MISSING-MINOR",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, close, or timeout = warn"
+            },
+            {
+              "id": "COMP-VERSION-LEADING-ZEROS",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, close, or timeout = warn"
+            },
+            {
+              "id": "COMP-VERSION-WHITESPACE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, close, or timeout = warn"
+            },
+            {
+              "id": "COMP-CHUNKED-TRAILER-VALID",
+              "verdict": "Fail",
+              "scored": true,
+              "connectionState": "ClosedByServer",
+              "expected": "2xx + echo"
+            },
+            {
+              "id": "COMP-NO-1XX-HTTP10",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 100,
+              "connectionState": "ClosedByServer",
+              "expected": "non-1xx response"
+            },
+            {
+              "id": "COMP-VERSION-CASE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, close, or timeout = warn"
+            },
+            {
+              "id": "COMP-SPACE-IN-TARGET",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, close, or timeout = warn"
+            }
+          ]
+        },
+        "Smuggling": {
+          "executed": 87,
+          "scored": 67,
+          "scored_pass": 54,
+          "scored_fail": 8,
+          "scored_warn": 5,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Pass": 67,
+            "Warn": 12,
+            "Fail": 8
+          },
+          "failures": [
+            {
+              "id": "SMUG-TE-NOT-FINAL-CHUNKED",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 501,
+              "connectionState": "ClosedByServer",
+              "expected": "400 or close"
+            },
+            {
+              "id": "SMUG-CHUNK-BARE-SEMICOLON",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "SMUG-CHUNK-EXT-INVALID-TOKEN",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "SMUG-CHUNK-EXT-LF",
+              "verdict": "Fail",
+              "scored": true,
+              "connectionState": "TimedOut",
+              "expected": "400 or 2xx"
+            },
+            {
+              "id": "SMUG-CHUNK-EXT-CTRL",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "SMUG-CHUNK-EXT-CR",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "SMUG-CL-NEGATIVE-ZERO",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "SMUG-MULTIPLE-HOST-COMMA",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            }
+          ]
+        },
+        "MalformedInput": {
+          "executed": 26,
+          "scored": 25,
+          "scored_pass": 12,
+          "scored_fail": 10,
+          "scored_warn": 3,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Pass": 12,
+            "Fail": 10,
+            "Warn": 4
+          },
+          "failures": [
+            {
+              "id": "MAL-LONG-URL",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400/414/431 or close"
+            },
+            {
+              "id": "MAL-LONG-HEADER-VALUE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400/431 or close"
+            },
+            {
+              "id": "MAL-CONTROL-CHARS-HEADER",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "MAL-LONG-HEADER-NAME",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400/431 or close"
+            },
+            {
+              "id": "MAL-LONG-METHOD",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400, 501 or close"
+            },
+            {
+              "id": "MAL-NON-ASCII-URL",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "MAL-WHITESPACE-ONLY-LINE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 404,
+              "connectionState": "ClosedByServer",
+              "expected": "400/close/timeout"
+            },
+            {
+              "id": "MAL-NUL-IN-HEADER-VALUE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            },
+            {
+              "id": "MAL-H2-PREFACE",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 404,
+              "connectionState": "ClosedByServer",
+              "expected": "400/505/close/timeout"
+            },
+            {
+              "id": "MAL-URL-OVERLONG-UTF8",
+              "verdict": "Fail",
+              "scored": true,
+              "statusCode": 200,
+              "connectionState": "Open",
+              "expected": "400 or close"
+            }
+          ]
+        },
+        "Normalization": {
+          "executed": 5,
+          "scored": 4,
+          "scored_pass": 2,
+          "scored_fail": 0,
+          "scored_warn": 2,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Warn": 2,
+            "Pass": 3
+          },
+          "failures": []
+        },
+        "Capabilities": {
+          "executed": 9,
+          "scored": 0,
+          "scored_pass": 0,
+          "scored_fail": 0,
+          "scored_warn": 0,
+          "execution_errors": 0,
+          "all_verdicts": {
+            "Warn": 7,
+            "Pass": 2
+          },
+          "failures": []
+        }
+      }
+    }
+  },
+  "h1spec": {
+    "native-h1spec": {
+      "result": "33 out of 33 tests passed.",
+      "reported_failures": []
+    },
+    "native-h1spec-final": {
+      "result": "33 out of 33 tests passed.",
+      "reported_failures": []
+    },
+    "jdk-8.0.482-tem-h1spec": {
+      "result": "26 out of 33 tests passed.",
+      "reported_failures": [
+        "❌ Invalid HTTP version: Response Status Code 200, Expected ranges: [[400,499],[500,599]]",
+        "❌ Valid POST request with body: Response Status Code 200, Expected ranges: [[200,299],[404,404]]",
+        "❌ Invalid line ending: Response Status Code 200, Expected ranges: [[400,499]]",
+        "❌ Request without HTTP version: Response Status Code 200, Expected ranges: [[400,599]]",
+        "❌ Header containing invalid control character: Response Status Code 200, Expected ranges: [[400,499]]",
+        "❌ Multiple Host headers: Response Status Code 200, Expected ranges: [[400,499]]",
+        "❌ Missing Host header: Read operation timed out"
+      ]
+    },
+    "jdk-21.0.10-tem-h1spec": {
+      "result": "25 out of 33 tests passed.",
+      "reported_failures": [
+        "❌ Invalid line ending: Response Status Code 200, Expected ranges: [[400,499]]",
+        "❌ Valid POST request with body: Response Status Code 200, Expected ranges: [[200,299],[404,404]]",
+        "❌ Invalid HTTP version: Response Status Code 200, Expected ranges: [[400,499],[500,599]]",
+        "❌ Chunked Transfer-Encoding: Response Status Code 200, Expected ranges: [[200,299]]",
+        "❌ Header containing invalid control character: Response Status Code 200, Expected ranges: [[400,499]]",
+        "❌ Request without HTTP version: Response Status Code 200, Expected ranges: [[400,599]]",
+        "❌ Multiple Host headers: Response Status Code 200, Expected ranges: [[400,499]]",
+        "❌ Missing Host header: Read operation timed out"
+      ]
+    }
+  },
+  "complete_response_echo_check": [
+    {
+      "target": "native",
+      "framing": "fixed",
+      "status": 200,
+      "body": "hello",
+      "passed": true
+    },
+    {
+      "target": "native",
+      "framing": "chunked",
+      "status": 200,
+      "body": "HellO world1",
+      "passed": true
+    },
+    {
+      "target": "jdk-8.0.482-tem",
+      "framing": "fixed",
+      "status": 200,
+      "body": "hello",
+      "passed": true
+    },
+    {
+      "target": "jdk-8.0.482-tem",
+      "framing": "chunked",
+      "status": 200,
+      "body": "HellO world1",
+      "passed": true
+    },
+    {
+      "target": "jdk-21.0.10-tem",
+      "framing": "fixed",
+      "status": 200,
+      "body": "hello",
+      "passed": true
+    },
+    {
+      "target": "jdk-21.0.10-tem",
+      "framing": "chunked",
+      "status": 200,
+      "body": "HellO world1",
+      "passed": true
+    }
+  ],
+  "local_native_tests": {
+    "3.9.0": 137,
+    "2.12.21": 137,
+    "2.13.18": 137
+  }
+}
