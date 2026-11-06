@@ -175,10 +175,17 @@ A slow or idle connection can therefore hold up the accept loop. A supplied
 executor determines concurrency; a synchronous executor still runs inline,
 whereas a pool allows connections to be processed concurrently.
 
-Even with a pool, an idle keep-alive connection occupies a worker. The next
-request head has a 30-second socket read timeout. The initial request head and
-application body reads have no server timeout. The server never shuts down a
-caller-supplied executor; its lifecycle belongs to the application.
+Even with a pool, an idle keep-alive connection occupies a worker. Each request
+head gets an absolute deadline when its worker starts reading it, including the
+idle wait on persistent connections. A stream wrapper checks monotonic elapsed
+time on every parser read, including buffered bytes, and adjusts the socket read
+timeout to the remaining budget. Progress does not renew the deadline. Expiry
+closes the connection without attempting a potentially blocking error response.
+After parsing, the socket timeout is cleared for application body reads. The
+duration is snapshotted at server construction; configuration and defaults are
+in [Compatibility](COMPATIBILITY.md#protocol-and-security-limits).
+The server never shuts down a caller-supplied executor; its lifecycle belongs to
+the application.
 
 ## Finishing an exchange and stopping the server
 

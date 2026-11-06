@@ -6,7 +6,12 @@ import com.sun.net.httpserver.Headers
 private[httpserver] object ConnectionPolicy {
   val drainBytes = 65536
   val drainNanos = 1000000000L
-  val idleMillis = 30000
+
+  def headerTimeoutMillis(): Int = {
+    val value = System.getProperty("org.scalanative.httpserver.headerTimeoutMillis", "30000").toInt
+    require(value > 0, "headerTimeoutMillis must be positive")
+    value
+  }
 
   def requestPersistent(head: RequestHeadParser.RequestHead): Boolean = {
     val values = head.headers.collect { case (name, value) if name.equalsIgnoreCase("Connection") => value }

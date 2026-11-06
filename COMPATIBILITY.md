@@ -45,11 +45,22 @@ JDK 21 differences in these areas are asserted explicitly by the shared tests.
 | Body framing | Positive length is exact; zero is chunked on HTTP/1.1 or connection-delimited on HTTP/1.0; negative length is bodyless; HEAD/bodyless status rules override framing |
 | Persistence | HTTP/1.1 defaults to keep-alive; HTTP/1.0 requires opt-in; pipelined responses retain order |
 | Unread bodies | Reuse requires successful drain within 64 KiB of wire bytes and a one-second total deadline; otherwise connection closes |
-| Timeouts | Next request head: 30-second socket read timeout, not an absolute deadline; initial head and application body reads: no server timeout |
+| Timeouts | Every request head has a 30-second absolute deadline by default, including request line, headers and idle wait; expiry closes without a response. Application body reads have no server timeout |
 | Capacity | No configurable upload-size, connection-count or worker limit |
 | Execution | Default executor uses the accept thread; idle/slow connections occupy it. Concurrent dispatch requires a caller-owned executor, which the server never shuts down or interrupts |
 | Shutdown | Terminal; closes idle sockets, gives active handlers `delay` seconds, closes remaining sockets, then joins the owned thread for up to 500 ms. Uncooperative handlers may outlive cleanup |
 | Exchanges | Attributes are local overrides over context defaults; filters are snapshotted; handler return triggers cleanup; missing response produces 500 |
+
+The `org.scalanative.httpserver.headerTimeoutMillis` system property configures
+the header deadline. Each server snapshots the property at construction through
+`HttpServer.create()`; it must be an integer from 1 to 2147483647
+milliseconds (default 30000). Invalid values cause `IllegalArgumentException`.
+The deadline starts when a worker begins reading each head, including subsequent
+heads on persistent connections, and is not renewed by incoming bytes. Executor
+queue time is excluded. This deliberately bounds header reads that previously
+could continue indefinitely while a client dripped bytes. There is no minimum
+ingress rate; legitimate clients must finish each head within the configured
+budget. Request bodies and response streaming are outside this deadline.
 
 ## Validation
 
@@ -57,7 +68,7 @@ Latest local results: Linux, Scala Native 0.5.12; Temurin 21.0.10 and 8u482.
 
 | Target | Scala | Passing tests |
 | --- | --- | --- |
-| Native | 2.12.21, 2.13.18, 3.9.0 | 137 per version |
+| Native | 2.12.21, 2.13.18, 3.9.0 | 143 per version |
 | JDK 8 reference | 2.12.21, 2.13.18 | 45 per version |
 | JDK 21 reference | 2.12.21, 2.13.18, 3.9.0 | 45 per version |
 

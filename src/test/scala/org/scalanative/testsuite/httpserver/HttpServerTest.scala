@@ -11,6 +11,118 @@ import org.junit.Assert._
 import org.junit.Test
 
 class HttpServerTest {
+  @Test def stalledInitialHeadExpiresAndServerRecovers(): Unit = withHeaderTimeout("300") {
+    withServer { server =>
+      server.createContext("/", textHandler("ready"))
+      server.start()
+      withClient(server)(assertConnectionClosed)
+      assertEquals("ready", request(server).body)
+    }
+  }
+
+  @Test def initialHeadHasAnAbsoluteDeadline(): Unit = drippingHeadExpires(false)
+
+  @Test def subsequentHeadHasAnAbsoluteDeadline(): Unit = drippingHeadExpires(true)
+
+  @Test def idlePersistentHeadExpires(): Unit = withHeaderTimeout("300") {
+    withServer { server =>
+      server.createContext("/", textHandler("ready"))
+      server.start()
+      withClient(server) { socket =>
+        socket.getOutputStream().write(requestBytes("/"))
+        assertEquals("ready", readResponse(socket.getInputStream()).body)
+        assertConnectionClosed(socket)
+      }
+    }
+  }
+
+  @Test def headerDeadlineDoesNotApplyToBodiesOrLaterHeads(): Unit = withHeaderTimeout("300") {
+    withServer { server =>
+      val entered = new CountDownLatch(1)
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = {
+          entered.countDown()
+          respond(exchange, new String(readAll(exchange.getRequestBody()), ISO_8859_1))
+        }
+      })
+      server.start()
+      withClient(server) { socket =>
+        val output = socket.getOutputStream()
+        output.write(requestBytes("/", "POST", "Content-Length: 1\r\n"))
+        assertTrue(entered.await(2, TimeUnit.SECONDS))
+        Thread.sleep(600)
+        output.write('a')
+        assertEquals("a", readResponse(socket.getInputStream()).body)
+        output.write(requestBytes("/", "POST", "Connection: close\r\nContent-Length: 1\r\n", "b"))
+        assertEquals("b", readResponse(socket.getInputStream()).body)
+        assertConnectionClosed(socket)
+      }
+    }
+  }
+
+  @Test def validatesAndSnapshotsHeaderTimeout(): Unit = {
+    Seq("0", "-1", "invalid", "2147483648", "").foreach { value =>
+      withHeaderTimeout(value) {
+        assertThrows(classOf[IllegalArgumentException], () => HttpServer.create())
+      }
+    }
+    withHeaderTimeout("300") {
+      withServer { server =>
+        System.setProperty("org.scalanative.httpserver.headerTimeoutMillis", "30000")
+        server.start()
+        withClient(server)(assertConnectionClosed)
+      }
+    }
+  }
+
+  private def withHeaderTimeout(value: String)(test: => Unit): Unit = {
+    val property = "org.scalanative.httpserver.headerTimeoutMillis"
+    val previous = System.getProperty(property)
+    System.setProperty(property, value)
+    try test
+    finally {
+      if (previous == null) System.clearProperty(property)
+      else System.setProperty(property, previous)
+    }
+  }
+
+  private def drippingHeadExpires(subsequent: Boolean): Unit = withHeaderTimeout("600") {
+    withServer { server =>
+      val calls = new AtomicInteger()
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = { calls.incrementAndGet(); respond(exchange, "ready") }
+      })
+      server.start()
+      val sender = Executors.newSingleThreadScheduledExecutor()
+      try {
+        withClient(server) { socket =>
+          val output = socket.getOutputStream()
+          if (subsequent) {
+            output.write(requestBytes("/"))
+            assertEquals("ready", readResponse(socket.getInputStream()).body)
+          }
+          output.write("GET / HTTP/1.1\r\nHost: x\r\nX-Slow: ".getBytes(ISO_8859_1))
+          val ticks = new AtomicInteger()
+          val drip = sender.scheduleAtFixedRate(new Runnable {
+            override def run(): Unit = {
+              try { output.write('a'); ticks.incrementAndGet() }
+              catch { case _: IOException => () }
+            }
+          }, 0, 50, TimeUnit.MILLISECONDS)
+          try {
+            assertConnectionClosed(socket)
+            assertTrue("Client did not make progress before expiry", ticks.get() >= 3)
+            val expectedCalls = if (subsequent) 1 else 0
+            assertEquals(expectedCalls, calls.get())
+          } finally drip.cancel(true)
+        }
+      } finally {
+        sender.shutdownNow()
+        assertTrue(sender.awaitTermination(3, TimeUnit.SECONDS))
+      }
+    }
+  }
+
   @Test def factoriesAndLifecycle(): Unit = {
     val server = HttpServer.create()
     try {

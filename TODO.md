@@ -8,7 +8,7 @@ Move completed behavior into the compatibility reference and validation evidence
 
 Agree on limits and configuration before implementation; preserve the JDK 8 public API and caller ownership of executors.
 
-- [ ] Define initial-header and subsequent-header absolute deadlines; evaluate minimum ingress rates against legitimate slow clients.
+- [ ] Evaluate minimum ingress rates against legitimate slow clients alongside the absolute header deadline.
 - [ ] Define request-body and response-write timeout policy, including streaming handlers.
 - [ ] Define connection admission, queued-work bounds and overload behavior.
 - [ ] Decide whether upload-size limits belong in the server or application handlers.

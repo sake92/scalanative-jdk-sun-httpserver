@@ -1,6 +1,6 @@
 package com.sun.net.httpserver.internal
 
-import java.io.{BufferedInputStream, BufferedOutputStream, EOFException, IOException}
+import java.io.{BufferedInputStream, BufferedOutputStream, EOFException, IOException, InputStream}
 import java.net.{BindException, InetSocketAddress, ProtocolException, ServerSocket, Socket, SocketTimeoutException, URI}
 import java.util.{ArrayList, HashMap, HashSet}
 import java.util.concurrent.Executor
@@ -9,6 +9,7 @@ import com.sun.net.httpserver.{Headers, HttpContext, HttpHandler, HttpServer}
 
 /** Blocking server with sequential exchanges on each persistent connection. */
 private[httpserver] final class BlockingHttpServer extends HttpServer {
+  private val headerTimeoutMillis = ConnectionPolicy.headerTimeoutMillis()
   private val lifecycle = new Object()
   private val contexts = new ArrayList[ServerContext]()
   private val connections = new HashSet[Socket]()
@@ -163,12 +164,8 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
       if (isStopped || socket.isClosed()) return
       val input = new BufferedInputStream(socket.getInputStream())
       val output = new BufferedOutputStream(socket.getOutputStream())
-      var first = true
       while (!isStopped && !socket.isClosed() && !Thread.currentThread().isInterrupted()) {
-        val timeout = if (first) 0 else ConnectionPolicy.idleMillis
-        socket.setSoTimeout(timeout)
         if (!processExchange(socket, input, output)) return
-        first = false
       }
     } catch { case _: IOException => () }
     finally release(socket)
@@ -177,8 +174,9 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
   private def processExchange(socket: Socket, input: BufferedInputStream, output: BufferedOutputStream): Boolean = {
     var exchange: ServerExchange = null
     try {
-      val head = try RequestHeadParser.read(input)
+      val head = try readHead(socket, input)
       catch {
+        case _: SocketTimeoutException => return false
         case error: RequestHeadParser.ParseException => errorResponse(output, error.responseCode); return false
       }
       if (head.isEmpty) return false
@@ -242,6 +240,27 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
         lifecycle.notifyAll()
       }
     }
+  }
+
+  private def readHead(socket: Socket, input: BufferedInputStream): Option[RequestHeadParser.RequestHead] = {
+    val deadline = System.nanoTime() + headerTimeoutMillis.toLong * 1000000L
+    val bounded = new InputStream {
+      private var lastTimeout = -1
+
+      override def read(): Int = {
+        val remaining = deadline - System.nanoTime()
+        if (remaining <= 0) throw new SocketTimeoutException("Request head deadline exceeded")
+        val timeout = math.max(1L, (remaining + 999999L) / 1000000L).toInt
+        if (timeout != lastTimeout) {
+          socket.setSoTimeout(timeout)
+          lastTimeout = timeout
+        }
+        input.read()
+      }
+    }
+    val head = RequestHeadParser.read(bounded)
+    if (deadline - System.nanoTime() <= 0) throw new SocketTimeoutException("Request head deadline exceeded")
+    head
   }
 
   private def failExchange(exchange: ServerExchange, code: Int): Unit = {
