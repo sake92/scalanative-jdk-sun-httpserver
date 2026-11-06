@@ -46,7 +46,7 @@ JDK 21 differences in these areas are asserted explicitly by the shared tests.
 | Persistence | HTTP/1.1 defaults to keep-alive; HTTP/1.0 requires opt-in; pipelined responses retain order |
 | Unread bodies | Reuse requires successful drain within 64 KiB of wire bytes and a one-second total deadline; otherwise connection closes |
 | Timeouts | Every request head has a 30-second absolute deadline by default, including request line, headers and idle wait; expiry closes without a response. Body socket reads and socket writes default to 30 seconds per operation; expiry closes the connection and fails I/O |
-| Capacity | No configurable upload-size, connection-count or worker limit |
+| Capacity | Configurable admission caps default to 256 connection tasks and 64 pending tasks; overload closes the new socket. Upload size is not limited; applications own worker configuration |
 | Execution | Default executor uses the accept thread; idle/slow connections occupy it. Concurrent dispatch requires a caller-owned executor, which the server never shuts down or interrupts |
 | Shutdown | Terminal; closes idle sockets, gives active handlers `delay` seconds, closes remaining sockets, then joins owned accept/watchdog threads within a shared 500 ms budget. Uncooperative handlers may outlive cleanup |
 | Exchanges | Attributes are local overrides over context defaults; filters are snapshotted; handler return triggers cleanup; missing response produces 500 |
@@ -82,26 +82,51 @@ blocked handler; exchange cleanup may consume the error. Caller-owned threads
 are not interrupted. Slow progress and handlers that stop doing I/O can still
 hold workers indefinitely; admission limits and handler cancellation are separate.
 
+### Admission limits
+
+Each server snapshots these system properties at construction. Values must be
+integers from 0 to 2147483647; 0 disables the corresponding limit. Invalid values
+cause `IllegalArgumentException`.
+
+| Property under `org.scalanative.httpserver.` | Default | Counted work |
+| --- | --- | --- |
+| `maxConnections` | 256 | All admitted connection tasks: queued, reading, handling and idle |
+| `maxPendingConnections` | 64 | Admitted executor tasks that have not started |
+
+Admission reserves both slots before calling the executor. A task releases its
+pending slot when it starts and its total slot when it finishes. Executor
+rejection releases both slots. A persistent connection keeps its total slot
+between requests; a handler that continues after socket closure retains its slot
+until its connection task returns.
+
+At either limit, the server closes a newly accepted socket without parsing it,
+writing an HTTP response or invoking a handler. The OS listen backlog and other
+users of a shared executor are outside these counts. The server neither replaces
+nor shuts down a caller-owned executor, and introduces no separate work queue.
+There is no queue-wait deadline: pending tasks retain their slots until they run
+or submission fails. A blocking executor can still hold up the accept thread.
+These limits bound admitted work, not request arrival rates or fair access.
+
 ## Validation
 
 Latest local results: Linux, Scala Native 0.5.12; Temurin 21.0.10 and 8u482.
 
 | Target | Scala | Passing tests |
 | --- | --- | --- |
-| Native | 2.12.21, 2.13.18, 3.9.0 | 155 per version |
+| Native | 2.12.21, 2.13.18, 3.9.0 | 162 per version |
 | JDK 8 reference | 2.12.21, 2.13.18 | 45 per version |
 | JDK 21 reference | 2.12.21, 2.13.18, 3.9.0 | 45 per version |
 
 No skipped tests. Shared JUnit contracts cover the public API and real exchanges;
-Native-only tests cover framing, malformed input, pipelining, drain limits and
-shutdown. Passing cases do not establish complete conformance. Commands are in
-[README.md](README.md#build-and-test).
+Native-only tests cover framing, malformed input, pipelining, drain limits,
+timeouts, admission limits and shutdown. Passing cases do not establish complete
+conformance. Commands are in [README.md](README.md#build-and-test).
 
 External checks: [h1spec and Http11Probe results](conformance/REPORT.md), including
 the JDK reference comparisons and the remaining disputed empty-Host verdict.
 The [slow-client baseline](conformance/REPORT.md#slow-client-baseline) predates
-the timeout changes and recorded starvation under pressure, recovery after
-disconnect and bounded shutdown. Current timeout behavior has direct JUnit
+the timeout and admission changes and recorded starvation under pressure,
+recovery after disconnect and bounded shutdown. Current hardening has direct JUnit
 coverage; the external baseline still needs updating and rerunning. These checks
 do not establish DoS resilience.
 

@@ -13,9 +13,13 @@ private[httpserver] object ConnectionPolicy {
     value
   }
 
-  def bodyReadTimeoutMillis(): Int = ioTimeoutMillis("bodyReadTimeoutMillis")
+  def bodyReadTimeoutMillis(): Int = nonNegativeProperty("bodyReadTimeoutMillis", 30000)
 
-  def writeTimeoutMillis(): Int = ioTimeoutMillis("writeTimeoutMillis")
+  def writeTimeoutMillis(): Int = nonNegativeProperty("writeTimeoutMillis", 30000)
+
+  def maxConnections(): Int = nonNegativeProperty("maxConnections", 256)
+
+  def maxPendingConnections(): Int = nonNegativeProperty("maxPendingConnections", 64)
 
   def requestPersistent(head: RequestHeadParser.RequestHead): Boolean = {
     val values = head.headers.collect { case (name, value) if name.equalsIgnoreCase("Connection") => value }
@@ -38,8 +42,8 @@ private[httpserver] object ConnectionPolicy {
     }
   }
 
-  private def ioTimeoutMillis(name: String): Int = {
-    val value = System.getProperty("org.scalanative.httpserver." + name, "30000").toInt
+  private def nonNegativeProperty(name: String, default: Int): Int = {
+    val value = System.getProperty("org.scalanative.httpserver." + name, default.toString).toInt
     require(value >= 0, name + " must be nonnegative")
     value
   }

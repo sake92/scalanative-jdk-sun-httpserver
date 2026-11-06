@@ -1,16 +1,261 @@
 package org.scalanative.testsuite.httpserver
 
 import java.io.{ByteArrayOutputStream, DataInputStream, FilterInputStream, FilterOutputStream, IOException, InputStream}
-import java.net.{InetAddress, InetSocketAddress, Socket, SocketException}
+import java.net.{ConnectException, InetAddress, InetSocketAddress, Socket, SocketException}
 import java.nio.charset.StandardCharsets.ISO_8859_1
 import java.util.{ArrayList, HashMap, List => JList}
-import java.util.concurrent.{CountDownLatch, Executor, Executors, RejectedExecutionException, ThreadFactory, TimeUnit}
+import java.util.concurrent.{ArrayBlockingQueue, CountDownLatch, Executor, Executors, RejectedExecutionException, Semaphore, ThreadFactory, TimeUnit}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 import com.sun.net.httpserver._
 import org.junit.Assert._
 import org.junit.Test
 
 class HttpServerTest {
+  @Test def queuedConnectionsCountTowardBothAdmissionLimits(): Unit = {
+    Seq(("1", "0"), ("0", "1")).foreach { case (total, pending) =>
+      withCapacity(total, pending) {
+        withServer { server =>
+          System.setProperty("org.scalanative.httpserver.maxConnections", "0")
+          System.setProperty("org.scalanative.httpserver.maxPendingConnections", "0")
+          val tasks = new ArrayBlockingQueue[Runnable](4)
+          val submissions = new AtomicInteger()
+          val calls = new AtomicInteger()
+          server.setExecutor(new Executor {
+            override def execute(task: Runnable): Unit = { submissions.incrementAndGet(); tasks.add(task) }
+          })
+          server.createContext("/", new HttpHandler {
+            override def handle(exchange: HttpExchange): Unit = { calls.incrementAndGet(); respond(exchange, "ready") }
+          })
+          server.start()
+          withClient(server) { socket =>
+            socket.getOutputStream().write(requestBytes("/", fields = "Connection: close\r\n"))
+            val first = tasks.poll(2, TimeUnit.SECONDS)
+            assertNotNull(first)
+            assertRejectedConnection(server)
+            assertEquals(1, submissions.get())
+            assertEquals(0, calls.get())
+            first.run()
+            assertEquals("ready", readResponse(socket.getInputStream()).body)
+            assertConnectionClosed(socket)
+          }
+          withClient(server) { socket =>
+            socket.getOutputStream().write(requestBytes("/", fields = "Connection: close\r\n"))
+            val next = tasks.poll(2, TimeUnit.SECONDS)
+            assertNotNull(next)
+            next.run()
+            assertEquals("ready", readResponse(socket.getInputStream()).body)
+            assertConnectionClosed(socket)
+          }
+          assertEquals(2, calls.get())
+        }
+      }
+    }
+  }
+
+  @Test def activeAndIdleConnectionsConsumeAdmissionUntilReleased(): Unit = withCapacity("1", "0") {
+    withServer { server =>
+      val pool = Executors.newSingleThreadExecutor()
+      val entered = new CountDownLatch(1)
+      val finish = new CountDownLatch(1)
+      val completed = new Semaphore(0)
+      try {
+        server.setExecutor(new Executor {
+          override def execute(task: Runnable): Unit = pool.execute(new Runnable {
+            override def run(): Unit = try task.run() finally completed.release()
+          })
+        })
+        server.createContext("/", new HttpHandler {
+          override def handle(exchange: HttpExchange): Unit = {
+            entered.countDown()
+            assertTrue(finish.await(3, TimeUnit.SECONDS))
+            respond(exchange, "ready")
+          }
+        })
+        server.start()
+        withClient(server) { socket =>
+          socket.getOutputStream().write(requestBytes("/"))
+          assertTrue(entered.await(2, TimeUnit.SECONDS))
+          assertRejectedConnection(server)
+          finish.countDown()
+          assertEquals("ready", readResponse(socket.getInputStream()).body)
+          assertRejectedConnection(server)
+          socket.shutdownOutput()
+          assertConnectionClosed(socket)
+          assertTrue(completed.tryAcquire(2, TimeUnit.SECONDS))
+        }
+        assertEquals("ready", request(server).body)
+        assertFalse(pool.isShutdown())
+      } finally {
+        finish.countDown()
+        server.stop(0)
+        pool.shutdownNow()
+        assertTrue(pool.awaitTermination(3, TimeUnit.SECONDS))
+      }
+    }
+  }
+
+  @Test def executorRejectionReleasesAdmissionSlots(): Unit = withCapacity("1", "1") {
+    withServer { server =>
+      val pool = Executors.newSingleThreadExecutor()
+      val attempts = new AtomicInteger()
+      try {
+        server.setExecutor(new Executor {
+          override def execute(task: Runnable): Unit = {
+            if (attempts.getAndIncrement() == 0) throw new RejectedExecutionException("test rejection")
+            pool.execute(task)
+          }
+        })
+        server.createContext("/", textHandler("ready"))
+        server.start()
+        assertRejectedConnection(server)
+        assertEquals("ready", request(server).body)
+        assertEquals(2, attempts.get())
+      } finally {
+        server.stop(0)
+        pool.shutdownNow()
+        assertTrue(pool.awaitTermination(3, TimeUnit.SECONDS))
+      }
+    }
+  }
+
+  @Test def runningConnectionFreesPendingSlotForNextTask(): Unit = withCapacity("2", "1") {
+    withServer { server =>
+      val pool = Executors.newSingleThreadExecutor()
+      val entered = new CountDownLatch(1)
+      val finish = new CountDownLatch(1)
+      val queued = new CountDownLatch(1)
+      val submissions = new AtomicInteger()
+      val calls = new AtomicInteger()
+      try {
+        server.setExecutor(new Executor {
+          override def execute(task: Runnable): Unit = {
+            val number = submissions.incrementAndGet()
+            pool.execute(task)
+            if (number == 2) queued.countDown()
+          }
+        })
+        server.createContext("/", new HttpHandler {
+          override def handle(exchange: HttpExchange): Unit = {
+            if (calls.incrementAndGet() == 1) {
+              entered.countDown()
+              assertTrue(finish.await(3, TimeUnit.SECONDS))
+            }
+            respond(exchange, "ready")
+          }
+        })
+        server.start()
+        withClient(server) { first =>
+          first.getOutputStream().write(requestBytes("/", fields = "Connection: close\r\n"))
+          assertTrue(entered.await(2, TimeUnit.SECONDS))
+          withClient(server) { second =>
+            second.getOutputStream().write(requestBytes("/", fields = "Connection: close\r\n"))
+            assertTrue("Running task retained its pending slot", queued.await(2, TimeUnit.SECONDS))
+            assertRejectedConnection(server)
+            assertEquals(2, submissions.get())
+            assertEquals(1, calls.get())
+            finish.countDown()
+            assertEquals("ready", readResponse(first.getInputStream()).body)
+            assertEquals("ready", readResponse(second.getInputStream()).body)
+            assertConnectionClosed(first)
+            assertConnectionClosed(second)
+          }
+        }
+      } finally {
+        finish.countDown()
+        server.stop(0)
+        pool.shutdownNow()
+        assertTrue(pool.awaitTermination(3, TimeUnit.SECONDS))
+      }
+    }
+  }
+
+  @Test def zeroAdmissionLimitsAllowMultipleQueuedConnections(): Unit = withCapacity("0", "0") {
+    withServer { server =>
+      System.setProperty("org.scalanative.httpserver.maxConnections", "1")
+      System.setProperty("org.scalanative.httpserver.maxPendingConnections", "1")
+      val tasks = new ArrayBlockingQueue[Runnable](4)
+      server.setExecutor(new Executor { override def execute(task: Runnable): Unit = { tasks.add(task); () } })
+      server.createContext("/", textHandler("ready"))
+      server.start()
+      withClient(server) { first =>
+        withClient(server) { second =>
+          withClient(server) { third =>
+            val sockets = Seq(first, second, third)
+            sockets.foreach(_.getOutputStream().write(requestBytes("/", fields = "Connection: close\r\n")))
+            sockets.foreach { _ =>
+              val task = tasks.poll(2, TimeUnit.SECONDS)
+              assertNotNull(task)
+              task.run()
+            }
+            sockets.foreach { socket =>
+              assertEquals("ready", readResponse(socket.getInputStream()).body)
+              assertConnectionClosed(socket)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @Test def validatesAdmissionConfiguration(): Unit = {
+    Seq("-1", "invalid", "2147483648", "").foreach { value =>
+      withCapacity(value, "0") {
+        assertThrows(classOf[IllegalArgumentException], () => HttpServer.create())
+      }
+      withCapacity("0", value) {
+        assertThrows(classOf[IllegalArgumentException], () => HttpServer.create())
+      }
+    }
+  }
+
+  @Test def headFailuresReleaseAdmissionSlots(): Unit = withCapacity("1", "1") {
+    withHeaderTimeout("300") {
+      withServer { server =>
+        val pool = Executors.newSingleThreadExecutor()
+        val completed = new Semaphore(0)
+        try {
+          server.setExecutor(new Executor {
+            override def execute(task: Runnable): Unit = pool.execute(new Runnable {
+              override def run(): Unit = try task.run() finally completed.release()
+            })
+          })
+          server.createContext("/", textHandler("ready"))
+          server.start()
+          withClient(server) { socket =>
+            socket.getOutputStream().write("GET / HTTP/1.1\r\n\r\n".getBytes(ISO_8859_1))
+            assertEquals(400, readResponse(socket.getInputStream()).status)
+            assertConnectionClosed(socket)
+          }
+          assertTrue(completed.tryAcquire(2, TimeUnit.SECONDS))
+          withClient(server)(assertConnectionClosed)
+          assertTrue(completed.tryAcquire(2, TimeUnit.SECONDS))
+          assertEquals("ready", request(server).body)
+        } finally {
+          server.stop(0)
+          pool.shutdownNow()
+          assertTrue(pool.awaitTermination(3, TimeUnit.SECONDS))
+        }
+      }
+    }
+  }
+
+  private def withCapacity(total: String, pending: String)(test: => Unit): Unit = {
+    withSystemProperty("org.scalanative.httpserver.maxConnections", total) {
+      withSystemProperty("org.scalanative.httpserver.maxPendingConnections", pending)(test)
+    }
+  }
+
+  private def assertRejectedConnection(server: HttpServer): Unit = {
+    val socket = new Socket()
+    try {
+      try socket.connect(server.getAddress(), 3000)
+      // Native's timed connect can report refusal when the peer closes before connect returns.
+      catch { case _: ConnectException => return }
+      socket.setSoTimeout(2000)
+      assertConnectionClosed(socket)
+    } finally socket.close()
+  }
+
   @Test def stalledFixedBodyReadClosesConnection(): Unit = stalledBodyReadExpires("Content-Length: 1\r\n", "")
 
   @Test def stalledChunkDataReadClosesConnection(): Unit = stalledBodyReadExpires("Transfer-Encoding: chunked\r\n", "1\r\n")

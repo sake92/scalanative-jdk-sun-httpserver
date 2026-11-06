@@ -12,9 +12,12 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
   private val headerTimeoutMillis = ConnectionPolicy.headerTimeoutMillis()
   private val bodyReadTimeoutMillis = ConnectionPolicy.bodyReadTimeoutMillis()
   private val writeTimeouts = new WriteTimeouts(ConnectionPolicy.writeTimeoutMillis())
+  private val maxConnections = ConnectionPolicy.maxConnections()
+  private val maxPendingConnections = ConnectionPolicy.maxPendingConnections()
   private val lifecycle = new Object()
   private val contexts = new ArrayList[ServerContext]()
   private val connections = new HashSet[Socket]()
+  private val pendingConnections = new HashSet[Socket]()
   private val active = new HashMap[Socket, Thread]()
   private var listener: ServerSocket = null
   private var address: InetSocketAddress = null
@@ -148,8 +151,14 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
         try {
           val socket = listener.accept()
           val dispatch = lifecycle.synchronized {
-            if (stopped) null
-            else { connections.add(socket); executor }
+            if (stopped ||
+                (maxConnections > 0 && connections.size() >= maxConnections) ||
+                (maxPendingConnections > 0 && pendingConnections.size() >= maxPendingConnections)) null
+            else {
+              connections.add(socket)
+              pendingConnections.add(socket)
+              executor
+            }
           }
           if (dispatch == null) closeSocket(socket)
           else {
@@ -168,7 +177,11 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
 
   private def process(socket: Socket): Unit = {
     try {
-      if (isStopped || socket.isClosed()) return
+      val admitted = lifecycle.synchronized {
+        pendingConnections.remove(socket)
+        !stopped && !socket.isClosed()
+      }
+      if (!admitted) return
       val input = new BufferedInputStream(socket.getInputStream())
       val output = new BufferedOutputStream(writeTimeouts.output(socket))
       while (!isStopped && !socket.isClosed() && !Thread.currentThread().isInterrupted()) {
@@ -292,6 +305,7 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
     closeSocket(socket)
     lifecycle.synchronized {
       active.remove(socket)
+      pendingConnections.remove(socket)
       connections.remove(socket)
       lifecycle.notifyAll()
     }

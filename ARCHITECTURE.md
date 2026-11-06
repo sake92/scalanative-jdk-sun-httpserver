@@ -45,15 +45,16 @@ flowchart TD
 | `ResponseHeadWriter` | Validates and serializes response headers and selects response body framing. |
 | `FixedLengthInputStream`, `ChunkedInputStream` | Expose request body bytes without consuming the next request on the connection. |
 | `FixedLengthOutputStream`, `ChunkedOutputStream` | Enforce an exact response length or encode a chunked response. |
-| `ConnectionPolicy` | Connection persistence rules, configured I/O limits and unread-body drain bounds. |
+| `ConnectionPolicy` | Connection persistence rules, configured I/O/admission limits and unread-body drain bounds. |
 | `WriteTimeouts` | One server-owned thread watches pending socket output calls and closes sockets whose write deadlines expire. |
 | `HttpSyntax` | Shared HTTP token and field-value checks used by parsing and serialization. |
 
 ## From an accepted connection to a response
 
 `bind()` creates the listening socket. `start()` launches the server-owned
-`httpserver-accept` thread, which accepts sockets and submits a runnable to the
-configured executor. That runnable calls `process(socket)`.
+`httpserver-accept` thread, which accepts sockets and checks admission limits.
+Admitted sockets get a runnable submitted to the configured executor; sockets
+over either limit close immediately. That runnable calls `process(socket)`.
 
 `process` creates buffered input and output streams once for the connection.
 It then repeatedly calls `processExchange` while the connection remains reusable.
@@ -203,7 +204,28 @@ combine an initial time allowance with byte-based extensions and an optional
 maximum duration; their defaults do not establish suitable values for this server.
 If deployment evidence calls for earlier rejection, a minimum rate can be
 evaluated alongside admission limits. The header deadline alone does not limit
-connection arrivals, queued work or body/write stalls.
+connection arrivals, queued work or body/write stalls; admission caps apply
+separately.
+
+### Connection admission and executor queues
+
+The lifecycle lock protects both the set of admitted connections and the subset
+whose executor tasks have not started. The accept loop reserves both slots before
+submitting work, making the cap apply even to an executor that queues without a
+bound. Overload closes the new socket before submission. Executor rejection uses
+the normal release path, removing both reservations.
+
+`process(socket)` removes the pending reservation before reading. Its `finally`
+releases the total reservation for every exit, including parse failure, read
+timeout, peer disconnect and shutdown. Persistent idle waits retain that total
+reservation. This bounds connection tasks even when a handler catches an I/O
+failure and keeps running after its socket closes.
+
+The server does not change the caller's executor or create its own work queue.
+The pending count covers only this server's tasks; its limit does not bound other
+work in a shared executor. Queued tasks have no wait deadline, and an executor
+whose `execute` blocks can still stall acceptance. Configuration and overload
+behavior are in [Compatibility](COMPATIBILITY.md#admission-limits).
 
 ### Body reads and socket writes
 

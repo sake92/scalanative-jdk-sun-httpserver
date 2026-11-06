@@ -149,8 +149,8 @@ The current `idle-drip` case requires the connection to survive all 32 seconds.
 Native's default header deadline now closes it earlier, so the case's survival
 assertion is outdated. Updating this diagnostic to record expected timeout closure
 and rerunning the baseline remain in [TODO.md](../TODO.md). Existing external
-results predate the timeout changes; current timeout evidence is in the
-[Native regression results](REPORT.md#native-timeout-regressions).
+results predate the timeout and admission changes; current hardening evidence is
+in the [Native regression results](REPORT.md#native-hardening-regressions).
 
 ### slowhttptest 1.9.0
 

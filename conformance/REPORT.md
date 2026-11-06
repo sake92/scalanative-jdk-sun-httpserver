@@ -4,6 +4,9 @@ Local Linux results: Scala Native 0.5.12 / Scala 3.9.0; reference fixture
 Scala 2.13.18 on Temurin 8u482 and 21.0.10.
 [Commands and pinned tools](README.md) · [Protocol policy](../COMPATIBILITY.md)
 
+External measurements predate the timeout and admission changes; current local
+regression results are listed separately below.
+
 ## Protocol checks
 
 | Target | h1spec | Http11Probe pass | Warn | Fail |
@@ -22,9 +25,6 @@ Scala 2.13.18 on Temurin 8u482 and 21.0.10.
 
 ## Slow-client baseline
 
-These measurements predate the header deadlines and body/write timeouts; the
-external slow-client baseline has not been rerun with those changes.
-
 | Target | Socket cases completed | slowhttptest 1.9.0 runs completed |
 | --- | --- | --- |
 | Native | 20/20 | 6/6 |
@@ -41,17 +41,18 @@ Startup failure, timeout, invalid arguments, output preservation and TERM cleanu
 checked; no test processes remained. Final Native h1spec rerun: 33/33.
 An earlier fixture TERM run hit a Native `PosixThread.park` assertion; investigation remains in [TODO.md](../TODO.md).
 
-## Native timeout regressions
+## Native hardening regressions
 
 | Local Native check | Result |
 | --- | --- |
-| `sbt +testFull`, Scala 2.12.21 / 2.13.18 / 3.9.0 | 155/155 per version |
+| `sbt +testFull`, Scala 2.12.21 / 2.13.18 / 3.9.0 | 162/162 per version |
 
 - Six header tests cover stalled/dripping heads, recovery, body-read isolation, fresh budgets and configuration; five failed before implementation.
 - Two acceptance tests send valid heads in four fragments, 300 ms apart, within a two-second budget; synthetic clients only. Minimum rates remain disabled ([rationale](../ARCHITECTURE.md#why-there-is-no-minimum-header-ingress-rate)).
 - Ten body/write tests cover stalls, recovery, streaming, disabled limits, settings, watchdog cleanup and buffered responses after drain failure; five behavior cases failed before implementation, and the drain case caught an intermediate regression.
+- Seven admission tests cover queued/active/idle caps, pending-slot release at task start, rejection and head-failure recovery, disabled limits and construction-time settings; three failed before implementation.
 
-Host-JDK and external suites were not rerun for the timeout changes.
+Host-JDK and external suites were not rerun for the timeout and admission changes.
 
 Raw logs, resource samples and tool reports stay untracked in
 `target/conformance-results/` and may be removed during cleanup.

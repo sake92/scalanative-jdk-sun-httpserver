@@ -37,7 +37,7 @@ HTTP_SERVER_TEST_JAVA_HOME="$HOME/.sdkman/candidates/java/8.0.482-tem" \
 
 Repeat with `2.12.21`; Scala 3.9.0 cannot run on Java 8.
 
-## Configure timeouts
+## Configure server limits
 
 Set system properties in application code before creating the server:
 
@@ -45,9 +45,12 @@ Set system properties in application code before creating the server:
 System.setProperty("org.scalanative.httpserver.headerTimeoutMillis", "15000")
 System.setProperty("org.scalanative.httpserver.bodyReadTimeoutMillis", "60000")
 System.setProperty("org.scalanative.httpserver.writeTimeoutMillis", "60000")
+System.setProperty("org.scalanative.httpserver.maxConnections", "128")
+System.setProperty("org.scalanative.httpserver.maxPendingConnections", "32")
 val server = com.sun.net.httpserver.HttpServer.create()
 ```
 
 Each server captures its settings at construction. See
-[timeout defaults and semantics](COMPATIBILITY.md#timeout-configuration) for valid
-values, streaming behavior and remaining limits.
+[timeout settings](COMPATIBILITY.md#timeout-configuration) and
+[admission limits](COMPATIBILITY.md#admission-limits) for defaults, valid values,
+streaming behavior and overload handling.
