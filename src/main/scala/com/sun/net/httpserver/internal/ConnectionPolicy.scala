@@ -21,6 +21,12 @@ private[httpserver] object ConnectionPolicy {
 
   def maxPendingConnections(): Int = nonNegativeProperty("maxPendingConnections", 64)
 
+  def maxRequestBodyBytes(): Long = {
+    val value = System.getProperty("org.scalanative.httpserver.maxRequestBodyBytes", "1048576").toLong
+    require(value >= 0, "maxRequestBodyBytes must be nonnegative")
+    value
+  }
+
   def requestPersistent(head: RequestHeadParser.RequestHead): Boolean = {
     val values = head.headers.collect { case (name, value) if name.equalsIgnoreCase("Connection") => value }
     val options = tokens(values).getOrElse(throw new ProtocolException("Invalid Connection options"))

@@ -14,6 +14,7 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
   private val writeTimeouts = new WriteTimeouts(ConnectionPolicy.writeTimeoutMillis())
   private val maxConnections = ConnectionPolicy.maxConnections()
   private val maxPendingConnections = ConnectionPolicy.maxPendingConnections()
+  private val maxRequestBodyBytes = ConnectionPolicy.maxRequestBodyBytes()
   private val lifecycle = new Object()
   private val contexts = new ArrayList[ServerContext]()
   private val connections = new HashSet[Socket]()
@@ -213,6 +214,12 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
         errorResponse(output, 417)
         return false
       }
+      request.framing match {
+        case RequestHeadParser.FixedLength(length) if maxRequestBodyBytes > 0 && length > maxRequestBodyBytes =>
+          errorResponse(output, 413)
+          return false
+        case _ => ()
+      }
       if (request.target == "*") {
         val headers = new Headers()
         headers.set("Connection", "close")
@@ -239,7 +246,7 @@ private[httpserver] final class BlockingHttpServer extends HttpServer {
         case RequestHeadParser.Chunked => true
       }
       exchange = new ServerExchange(socket, request, context, input, output,
-        expectations.nonEmpty && hasBody, persistent, () => !isStopped)
+        expectations.nonEmpty && hasBody, persistent, () => !isStopped, maxRequestBodyBytes)
       val admitted = lifecycle.synchronized {
         if (stopped) false
         else { active.put(socket, Thread.currentThread()); true }

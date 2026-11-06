@@ -10,6 +10,27 @@ import org.junit.Test
 import ChunkedInputStream.Limits
 
 class ChunkedInputStreamTest {
+  @Test def bodyLimitRejectsBeforeReadingAnOversizedChunkAndLatchesFailure(): Unit = {
+    val source = stream("2\r\nab\r\n2\r\ncd\r\n0\r\n\r\n")
+    val body = new ChunkedInputStream(source, maxBodyBytes = 3)
+    val buffer = new Array[Byte](8)
+    assertEquals(2, body.read(buffer))
+    assertEquals("ab", new String(buffer, 0, 2, ISO_8859_1))
+    val error = assertThrows(classOf[ChunkedInputStream.BodyTooLargeException], () => body.read(buffer))
+    assertSame(error, assertThrows(classOf[IOException], () => body.read()))
+    assertSame(error, assertThrows(classOf[IOException], () => body.skip(1)))
+    assertFalse(body.isComplete)
+    assertEquals('c'.toInt, source.read())
+  }
+
+  @Test def cumulativeBodyLimitCannotOverflowLong(): Unit = {
+    val source = stream("1\r\na\r\n7fffffffffffffff\r\nN")
+    val body = new ChunkedInputStream(source, maxBodyBytes = Long.MaxValue)
+    assertEquals('a'.toInt, body.read())
+    assertThrows(classOf[ChunkedInputStream.BodyTooLargeException], () => body.read())
+    assertEquals('N'.toInt, source.read())
+  }
+
   @Test def decodesChunksAndPreservesNextRequest(): Unit = {
     val source = stream("POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n" +
       "02\r\n\u00ffa\r\na\r\n0123456789\r\nB\r\nabcdefghijk\r\n000\r\n\r\n" + nextRequest)

@@ -4,6 +4,7 @@ import java.io.{FilterInputStream, IOException, InputStream, OutputStream}
 import java.net.{InetSocketAddress, Socket, SocketTimeoutException, URI}
 import java.nio.charset.StandardCharsets.US_ASCII
 import java.util.HashMap
+import scala.util.control.NonFatal
 import com.sun.net.httpserver.{Headers, HttpContext, HttpExchange, HttpPrincipal}
 
 private[httpserver] final class ServerExchange(
@@ -14,7 +15,8 @@ private[httpserver] final class ServerExchange(
     private val output: OutputStream,
     expectContinue: Boolean,
     requestPersistent: Boolean,
-    private val allowReuse: () => Boolean
+    private val allowReuse: () => Boolean,
+    maxRequestBodyBytes: Long
 ) extends HttpExchange {
   private val requestHeaders = new ReadOnlyHeaders(head.headers)
   private val responseHeaders = new Headers()
@@ -56,7 +58,7 @@ private[httpserver] final class ServerExchange(
   private val framedInput: InputStream = head.framing match {
     case RequestHeadParser.NoBody => new FixedLengthInputStream(bodySource, 0)
     case RequestHeadParser.FixedLength(length) => new FixedLengthInputStream(bodySource, length)
-    case RequestHeadParser.Chunked => new ChunkedInputStream(bodySource)
+    case RequestHeadParser.Chunked => new ChunkedInputStream(bodySource, maxBodyBytes = maxRequestBodyBytes)
   }
   private var pendingContinue = expectContinue
   private var committed = false
@@ -72,7 +74,7 @@ private[httpserver] final class ServerExchange(
       checkRequestOpen()
       continueIfNeeded()
       try super.read()
-      catch { case error: IOException => reusable = false; throw error }
+      catch { case error: IOException => bodyReadFailed(error) }
     }
     override def read(bytes: Array[Byte]): Int = read(bytes, 0, bytes.length)
     override def read(bytes: Array[Byte], offset: Int, length: Int): Int = {
@@ -82,13 +84,13 @@ private[httpserver] final class ServerExchange(
       checkRequestOpen()
       if (length > 0) continueIfNeeded()
       try super.read(bytes, offset, length)
-      catch { case error: IOException => reusable = false; throw error }
+      catch { case error: IOException => bodyReadFailed(error) }
     }
     override def skip(length: Long): Long = {
       checkRequestOpen()
       if (length > 0) continueIfNeeded()
       try super.skip(length)
-      catch { case error: IOException => reusable = false; throw error }
+      catch { case error: IOException => bodyReadFailed(error) }
     }
     override def close(): Unit = finishRequestBody()
   }
@@ -209,6 +211,24 @@ private[httpserver] final class ServerExchange(
     catch { case _: IOException => () }
   }
 
+  private def bodyReadFailed(error: IOException): Nothing = {
+    reusable = false
+    error match {
+      case _: ChunkedInputStream.BodyTooLargeException =>
+        try {
+          if (!committed && !closed) {
+            responseHeaders.clear()
+            sendResponseHeaders(413, -1)
+            // Flush only owned framing; an application's stream close may block.
+            wireBody.close()
+          }
+        } catch { case NonFatal(_) => () }
+        finally abort()
+      case _ => ()
+    }
+    throw error
+  }
+
   private def activeBody(): OutputStream = {
     if (closed) throw new IOException("Exchange is closed")
     if (wireBody == null) throw new IOException("Response headers have not been sent")
@@ -249,7 +269,10 @@ private[httpserver] final class ServerExchange(
         if (count == 0 || (count == -1 && !requestComplete))
           throw new IOException("Incomplete request body while draining")
       }
-    } catch { case _: IOException => reusable = false }
+    } catch {
+      case error: ChunkedInputStream.BodyTooLargeException if !committed => bodyReadFailed(error)
+      case _: IOException => reusable = false
+    }
     finally {
       drainRemaining = -1
       try socket.setSoTimeout(previousTimeout)

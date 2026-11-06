@@ -43,7 +43,7 @@ flowchart TD
 | `Headers`, `ReadOnlyHeaders` | Header storage. Request headers are read-only; response headers can be changed before they are sent. |
 | `RequestHeadParser` | Reads and validates the request line and headers, then determines request body framing. |
 | `ResponseHeadWriter` | Validates and serializes response headers and selects response body framing. |
-| `FixedLengthInputStream`, `ChunkedInputStream` | Expose request body bytes without consuming the next request on the connection. |
+| `FixedLengthInputStream`, `ChunkedInputStream` | Expose request body bytes without consuming the next request; the chunk decoder also enforces its payload budget. |
 | `FixedLengthOutputStream`, `ChunkedOutputStream` | Enforce an exact response length or encode a chunked response. |
 | `ConnectionPolicy` | Connection persistence rules, configured I/O/admission limits and unread-body drain bounds. |
 | `WriteTimeouts` | One server-owned thread watches pending socket output calls and closes sockets whose write deadlines expire. |
@@ -143,6 +143,38 @@ On input, `RequestHeadParser` selects no body, a fixed `Content-Length`, or
 chunked encoding. `ServerExchange` builds the corresponding input stream.
 `ChunkedInputStream` removes chunk framing and validates trailers, which it
 discards. The handler sees the decoded body bytes.
+
+### Why body limits belong in both layers
+
+The server provides a configurable ceiling before application buffering, parsing
+or storage. Applications know the appropriate limits for each route and upload,
+including decompressed content and multipart files, so those stricter limits
+remain application responsibilities. The server does not decode content encodings
+or buffer a whole request to decide whether to admit it.
+
+The default ceiling follows [nginx's 1 MiB default](https://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size).
+Other established defaults differ: [Kestrel uses 30000000 bytes](https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.server.kestrel.core.kestrelserverlimits.maxrequestbodysize?view=aspnetcore-10.0)
+and [Apache httpd uses 1 GiB](https://httpd.apache.org/docs/2.4/mod/core.html#limitrequestbody).
+[OWASP recommends limiting request and upload sizes](https://cheatsheetseries.owasp.org/cheatsheets/Denial_of_Service_Cheat_Sheet.html#input-validation)
+without prescribing one threshold. The chosen 1 MiB default is conservative;
+large-upload applications must configure a higher ceiling or disable it.
+
+`BlockingHttpServer` checks declared lengths before dispatch or `100 Continue`.
+`ChunkedInputStream` subtracts each validated chunk size from a per-request budget
+before reading its payload. Comparing against a remaining budget avoids overflow
+from adding very large chunk sizes. The same framing stream serves reads, skips
+and cleanup, so those paths share enforcement.
+
+`ServerExchange` handles the size exception at the body-read boundary, sending
+413 through owned framing and closing before returning the exception to application
+code. It does not call application-provided stream cleanup on this rejection path,
+since that callback could block socket closure. Relying only
+on the outer dispatch catch would let handlers swallow it and send success.
+Committed responses cannot be replaced: application reads abort, while cleanup
+preserves the existing response and prevents reuse. Configuration and detailed
+behavior are in [Compatibility](COMPATIBILITY.md#request-body-size-limit).
+
+### Response framing
 
 On output, `sendResponseHeaders(code, length)` asks `ResponseHeadWriter` to
 choose framing and write the status line and headers. `ServerExchange` then

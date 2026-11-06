@@ -47,10 +47,12 @@ System.setProperty("org.scalanative.httpserver.bodyReadTimeoutMillis", "60000")
 System.setProperty("org.scalanative.httpserver.writeTimeoutMillis", "60000")
 System.setProperty("org.scalanative.httpserver.maxConnections", "128")
 System.setProperty("org.scalanative.httpserver.maxPendingConnections", "32")
+System.setProperty("org.scalanative.httpserver.maxRequestBodyBytes", "10485760")
 val server = com.sun.net.httpserver.HttpServer.create()
 ```
 
 Each server captures its settings at construction. See
 [timeout settings](COMPATIBILITY.md#timeout-configuration) and
-[admission limits](COMPATIBILITY.md#admission-limits) for defaults, valid values,
-streaming behavior and overload handling.
+[admission limits](COMPATIBILITY.md#admission-limits), and the
+[request-body ceiling](COMPATIBILITY.md#request-body-size-limit) for defaults,
+valid values, streaming behavior and overload handling.

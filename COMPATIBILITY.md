@@ -46,7 +46,8 @@ JDK 21 differences in these areas are asserted explicitly by the shared tests.
 | Persistence | HTTP/1.1 defaults to keep-alive; HTTP/1.0 requires opt-in; pipelined responses retain order |
 | Unread bodies | Reuse requires successful drain within 64 KiB of wire bytes and a one-second total deadline; otherwise connection closes |
 | Timeouts | Every request head has a 30-second absolute deadline by default, including request line, headers and idle wait; expiry closes without a response. Body socket reads and socket writes default to 30 seconds per operation; expiry closes the connection and fails I/O |
-| Capacity | Configurable admission caps default to 256 connection tasks and 64 pending tasks; overload closes the new socket. Upload size is not limited; applications own worker configuration |
+| Capacity | Configurable admission caps default to 256 connection tasks and 64 pending tasks; overload closes the new socket. Applications own worker configuration |
+| Request body size | Configurable 1 MiB ceiling by default, counting payload after chunk framing and before application decompression; see [body-size policy](#request-body-size-limit) |
 | Execution | Default executor uses the accept thread; idle/slow connections occupy it. Concurrent dispatch requires a caller-owned executor, which the server never shuts down or interrupts |
 | Shutdown | Terminal; closes idle sockets, gives active handlers `delay` seconds, closes remaining sockets, then joins owned accept/watchdog threads within a shared 500 ms budget. Uncooperative handlers may outlive cleanup |
 | Exchanges | Attributes are local overrides over context defaults; filters are snapshotted; handler return triggers cleanup; missing response produces 500 |
@@ -107,25 +108,55 @@ There is no queue-wait deadline: pending tasks retain their slots until they run
 or submission fails. A blocking executor can still hold up the accept thread.
 These limits bound admitted work, not request arrival rates or fair access.
 
+### Request body size limit
+
+`org.scalanative.httpserver.maxRequestBodyBytes` sets the server-wide request-body
+ceiling in bytes. The default is 1048576 (1 MiB). Each server snapshots the setting
+at construction; values must be integers from 0 to 9223372036854775807, with 0
+disabling the ceiling. Invalid values cause `IllegalArgumentException`.
+
+For supported requests with valid heads and expectations, an oversized
+`Content-Length` receives 413 and closes the connection before authentication,
+filters, handlers or `100 Continue`. Chunked bodies are checked incrementally:
+each validated chunk size must fit the remaining budget before any payload from
+that chunk is delivered. Chunk delimiters, extensions and trailers do not consume
+the payload budget; their existing parsing limits still apply. Each request gets
+a fresh budget, and exact-limit bodies may reuse the connection normally.
+
+Checks cover body reads, skips and unread-body draining without buffering the
+whole body. A size failure during application reads or an uncommitted body close
+generates 413, closes the exchange and throws an `IOException`; catching it cannot
+restore successful output or connection reuse. If a final response was already
+committed, a failed application read aborts the connection without a second
+response. During committed-response cleanup, a size failure prevents reuse while
+allowing that response to finish. Unknown body sizes are discovered only as their
+framing is read; the server does not eagerly consume ignored uploads.
+
+The ceiling applies before application content decoding or multipart parsing.
+Applications must impose their own stricter route, file, decoded-size and storage
+limits, and manage partial work when a streamed request fails. Applications that
+need larger uploads must raise or disable the server ceiling before construction.
+This limit does not restrict response sizes or add a public API beyond JDK 8.
+
 ## Validation
 
 Latest local results: Linux, Scala Native 0.5.12; Temurin 21.0.10 and 8u482.
 
 | Target | Scala | Passing tests |
 | --- | --- | --- |
-| Native | 2.12.21, 2.13.18, 3.9.0 | 162 per version |
+| Native | 2.12.21, 2.13.18, 3.9.0 | 175 per version |
 | JDK 8 reference | 2.12.21, 2.13.18 | 45 per version |
 | JDK 21 reference | 2.12.21, 2.13.18, 3.9.0 | 45 per version |
 
 No skipped tests. Shared JUnit contracts cover the public API and real exchanges;
 Native-only tests cover framing, malformed input, pipelining, drain limits,
-timeouts, admission limits and shutdown. Passing cases do not establish complete
-conformance. Commands are in [README.md](README.md#build-and-test).
+timeouts, admission/body-size limits and shutdown. Passing cases do not establish
+complete conformance. Commands are in [README.md](README.md#build-and-test).
 
 External checks: [h1spec and Http11Probe results](conformance/REPORT.md), including
 the JDK reference comparisons and the remaining disputed empty-Host verdict.
 The [slow-client baseline](conformance/REPORT.md#slow-client-baseline) predates
-the timeout and admission changes and recorded starvation under pressure,
+the timeout, admission and body-size changes and recorded starvation under pressure,
 recovery after disconnect and bounded shutdown. Current hardening has direct JUnit
 coverage; the external baseline still needs updating and rerunning. These checks
 do not establish DoS resilience.

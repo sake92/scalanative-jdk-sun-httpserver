@@ -11,6 +11,240 @@ import org.junit.Assert._
 import org.junit.Test
 
 class HttpServerTest {
+  @Test def defaultBodyLimitRejectsMoreThanOneMiBBeforeDispatch(): Unit = withBodyLimit(null) {
+    withServer { server =>
+      val calls = new AtomicInteger()
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = { calls.incrementAndGet(); respond(exchange, "wrong") }
+      })
+      server.start()
+      withClient(server) { socket =>
+        socket.getOutputStream().write(requestBytes("/", "POST", "Content-Length: 1048577\r\nExpect: 100-continue\r\n"))
+        assertEquals(413, readResponse(socket.getInputStream()).status)
+        assertConnectionClosed(socket)
+        assertEquals(0, calls.get())
+      }
+    }
+  }
+
+  @Test def oversizedDeclaredBodySkipsAuthenticationAndFilters(): Unit = withBodyLimit("3") {
+    withServer { server =>
+      val calls = new AtomicInteger()
+      val context = server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = { calls.incrementAndGet(); respond(exchange, "wrong") }
+      })
+      context.setAuthenticator(new Authenticator {
+        override def authenticate(exchange: HttpExchange): Authenticator.Result = {
+          calls.incrementAndGet()
+          new Authenticator.Success(new HttpPrincipal("user", "realm"))
+        }
+      })
+      context.getFilters().add(new Filter {
+        override def description(): String = "observe dispatch"
+        override def doFilter(exchange: HttpExchange, chain: Filter.Chain): Unit = {
+          calls.incrementAndGet()
+          chain.doFilter(exchange)
+        }
+      })
+      server.start()
+      withClient(server) { socket =>
+        socket.getOutputStream().write(requestBytes("/", "POST", "Content-Length: 4\r\nExpect: 100-continue\r\n"))
+        assertEquals(413, readResponse(socket.getInputStream()).status)
+        assertConnectionClosed(socket)
+        assertEquals(0, calls.get())
+      }
+    }
+  }
+
+  @Test def chunkedBodyLimitAppliesToSingleBulkAndSkippedReads(): Unit = withBodyLimit("3") {
+    withServer { server =>
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = {
+          val input = exchange.getRequestBody()
+          exchange.getRequestURI().getPath() match {
+            case "/single" => while (input.read() >= 0) ()
+            case "/bulk" => readAll(input)
+            case "/skip" => input.skip(Long.MaxValue)
+          }
+          respond(exchange, "wrong")
+        }
+      })
+      server.start()
+      Seq("/single", "/bulk", "/skip").foreach { path =>
+        withClient(server) { socket =>
+          socket.getOutputStream().write(requestBytes(path, "POST", "Transfer-Encoding: chunked\r\n", "2\r\nab\r\n2\r\ncd\r\n0\r\n\r\n"))
+          assertEquals(413, readResponse(socket.getInputStream()).status)
+          assertConnectionClosed(socket)
+        }
+      }
+    }
+  }
+
+  @Test def acceptsExactBodyLimitAndPreservesPipelining(): Unit = withBodyLimit("3") {
+    withServer { server =>
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = {
+          val body = new String(readAll(exchange.getRequestBody()), ISO_8859_1)
+          val response = if (exchange.getRequestURI().getPath() == "/next") "next" else body
+          respond(exchange, response)
+        }
+      })
+      server.start()
+      val bodies = Seq(
+        requestBytes("/", "POST", "Content-Length: 3\r\n", "abc"),
+        requestBytes("/", "POST", "Transfer-Encoding: chunked\r\nContent-Encoding: custom\r\n",
+          "1;note=metadata\r\na\r\n2\r\nbc\r\n0;end\r\nX-Trailer: metadata\r\n\r\n")
+      )
+      bodies.foreach { body =>
+        withClient(server) { socket =>
+          socket.getOutputStream().write(body ++ body ++ requestBytes("/next", fields = "Connection: close\r\n"))
+          assertEquals("abc", readResponse(socket.getInputStream()).body)
+          assertEquals("abc", readResponse(socket.getInputStream()).body)
+          assertEquals("next", readResponse(socket.getInputStream()).body)
+          assertConnectionClosed(socket)
+        }
+      }
+    }
+  }
+
+  @Test def catchingBodyLimitFailureCannotReplaceThe413(): Unit = withBodyLimit("3") {
+    withServer { server =>
+      val blocked = new CountDownLatch(1)
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = {
+          try readAll(exchange.getRequestBody()) catch { case _: IOException => () }
+          try respond(exchange, "wrong") catch { case _: IOException => blocked.countDown() }
+        }
+      })
+      server.start()
+      withClient(server) { socket =>
+        socket.getOutputStream().write(requestBytes("/", "POST", "Transfer-Encoding: chunked\r\n", "4\r\nabcd\r\n0\r\n\r\n"))
+        assertEquals(413, readResponse(socket.getInputStream()).status)
+        assertConnectionClosed(socket)
+        assertTrue(blocked.await(2, TimeUnit.SECONDS))
+      }
+    }
+  }
+
+  @Test def bodyLimitClosesSocketWithoutWaitingForApplicationStreamCleanup(): Unit = withBodyLimit("3") {
+    withServer { server =>
+      val releaseCleanup = new CountDownLatch(1)
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = {
+          val input = new FilterInputStream(exchange.getRequestBody()) {
+            override def close(): Unit = { releaseCleanup.await(3, TimeUnit.SECONDS); super.close() }
+          }
+          exchange.setStreams(input, null)
+          readAll(input)
+        }
+      })
+      server.start()
+      try {
+        withClient(server) { socket =>
+          socket.setSoTimeout(1000)
+          socket.getOutputStream().write(requestBytes("/", "POST", "Transfer-Encoding: chunked\r\n", "4\r\nabcd\r\n0\r\n\r\n"))
+          assertEquals(413, readResponse(socket.getInputStream()).status)
+          assertConnectionClosed(socket)
+        }
+      } finally releaseCleanup.countDown()
+    }
+  }
+
+  @Test def bodyLimitAfterResponseCommitClosesWithoutASecondResponse(): Unit = withBodyLimit("3") {
+    withServer { server =>
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = {
+          exchange.sendResponseHeaders(200, 0)
+          exchange.getResponseBody().write("prefix".getBytes(ISO_8859_1))
+          exchange.getResponseBody().flush()
+          readAll(exchange.getRequestBody())
+        }
+      })
+      server.start()
+      withClient(server) { socket =>
+        socket.getOutputStream().write(requestBytes("/", "POST", "Transfer-Encoding: chunked\r\n", "4\r\nabcd\r\n0\r\n\r\n"))
+        val input = socket.getInputStream()
+        assertEquals(200, readResponse(input, headOnly = true).status)
+        assertEquals("6", readLine(input))
+        val prefix = new Array[Byte](6)
+        new DataInputStream(input).readFully(prefix)
+        assertEquals("prefix", new String(prefix, ISO_8859_1))
+        assertEquals("", readLine(input))
+        assertConnectionClosed(socket)
+      }
+    }
+  }
+
+  @Test def bodyLimitDuringDrainPreservesResponseButPreventsReuse(): Unit = withBodyLimit("3") {
+    withServer { server =>
+      val calls = new AtomicInteger()
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = { calls.incrementAndGet(); exchange.sendResponseHeaders(202, -1) }
+      })
+      server.start()
+      withClient(server) { socket =>
+        socket.getOutputStream().write(requestBytes("/", "POST", "Transfer-Encoding: chunked\r\n", "4\r\nabcd\r\n0\r\n\r\n") ++
+          requestBytes("/next", fields = "Connection: close\r\n"))
+        assertEquals(202, readResponse(socket.getInputStream()).status)
+        assertConnectionClosed(socket)
+        assertEquals(1, calls.get())
+      }
+    }
+  }
+
+  @Test def closingAnOversizedBodyBeforeResponseProduces413(): Unit = withBodyLimit("3") {
+    withServer { server =>
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = {
+          try exchange.getRequestBody().close() catch { case _: IOException => () }
+          try respond(exchange, "wrong") catch { case _: IOException => () }
+        }
+      })
+      server.start()
+      withClient(server) { socket =>
+        socket.getOutputStream().write(requestBytes("/", "POST", "Transfer-Encoding: chunked\r\n", "4\r\nabcd\r\n0\r\n\r\n"))
+        assertEquals(413, readResponse(socket.getInputStream()).status)
+        assertConnectionClosed(socket)
+      }
+    }
+  }
+
+  @Test def disabledBodyLimitAllowsLargeFixedAndChunkedUploads(): Unit = withBodyLimit("0") {
+    withServer { server =>
+      System.setProperty("org.scalanative.httpserver.maxRequestBodyBytes", "3")
+      server.createContext("/", new HttpHandler {
+        override def handle(exchange: HttpExchange): Unit = respond(exchange, readAll(exchange.getRequestBody()).length.toString)
+      })
+      server.start()
+      val body = "a" * 1048577
+      assertEquals(body.length.toString, request(server, method = "POST", fields = "Content-Length: 1048577\r\n", body = body).body)
+      val chunks = Integer.toHexString(body.length) + "\r\n" + body + "\r\n0\r\n\r\n"
+      assertEquals(body.length.toString, request(server, method = "POST", fields = "Transfer-Encoding: chunked\r\n", body = chunks).body)
+    }
+  }
+
+  @Test def validatesAndSnapshotsRequestBodyLimit(): Unit = {
+    Seq("-1", "invalid", "9223372036854775808", "").foreach { value =>
+      withBodyLimit(value) { assertThrows(classOf[IllegalArgumentException], () => HttpServer.create()) }
+    }
+    Seq("2147483648", Long.MaxValue.toString).foreach { value =>
+      withBodyLimit(value) {
+        withServer { server => server.createContext("/", textHandler("ready")); server.start(); assertEquals("ready", request(server).body) }
+      }
+    }
+    withBodyLimit("3") {
+      withServer { server =>
+        System.setProperty("org.scalanative.httpserver.maxRequestBodyBytes", "0")
+        server.createContext("/", textHandler("wrong"))
+        server.start()
+        assertEquals(413, request(server, method = "POST", fields = "Content-Length: 4\r\n", body = "abcd").status)
+      }
+    }
+  }
+
+  private def withBodyLimit(value: String)(test: => Unit): Unit =
+    withSystemProperty("org.scalanative.httpserver.maxRequestBodyBytes", value)(test)
+
   @Test def queuedConnectionsCountTowardBothAdmissionLimits(): Unit = {
     Seq(("1", "0"), ("0", "1")).foreach { case (total, pending) =>
       withCapacity(total, pending) {
@@ -517,7 +751,8 @@ class HttpServerTest {
 
   private def withSystemProperty(property: String, value: String)(test: => Unit): Unit = {
     val previous = System.getProperty(property)
-    System.setProperty(property, value)
+    if (value == null) System.clearProperty(property)
+    else System.setProperty(property, value)
     try test
     finally {
       if (previous == null) System.clearProperty(property)

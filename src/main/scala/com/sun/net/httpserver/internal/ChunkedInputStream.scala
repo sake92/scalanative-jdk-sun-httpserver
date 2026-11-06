@@ -4,6 +4,8 @@ import java.io.{EOFException, IOException, InputStream}
 import java.net.ProtocolException
 
 private[httpserver] object ChunkedInputStream {
+  final class BodyTooLargeException extends IOException("Request body exceeds configured limit")
+
   final case class Limits(
       chunkLineBytes: Int = 8192,
       extensionBytes: Int = 65536,
@@ -24,10 +26,13 @@ private[httpserver] object ChunkedInputStream {
   */
 private[httpserver] final class ChunkedInputStream(
     private val input: InputStream,
-    private val limits: ChunkedInputStream.Limits = ChunkedInputStream.Limits()
+    private val limits: ChunkedInputStream.Limits = ChunkedInputStream.Limits(),
+    private val maxBodyBytes: Long = 0L
 ) extends InputStream {
   if (input == null) throw new NullPointerException("input")
+  require(maxBodyBytes >= 0, "maxBodyBytes must be nonnegative")
 
+  private var bodyBudget = maxBodyBytes
   private var remaining = 0L
   private var needsDelimiter = false
   private var complete = false
@@ -104,6 +109,10 @@ private[httpserver] final class ChunkedInputStream(
     if (extra > limits.extensionBytes - extensionBytes) invalid("Too much chunk extension text")
     extensionBytes += extra
     validateExtensions(line, index)
+    if (maxBodyBytes > 0) {
+      if (size > bodyBudget) throw new ChunkedInputStream.BodyTooLargeException()
+      bodyBudget -= size
+    }
     remaining = size
     if (size == 0) {
       readTrailers()
