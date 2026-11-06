@@ -8,7 +8,6 @@ Move completed behavior into the compatibility reference and validation evidence
 
 Agree on limits and configuration before implementation; preserve the JDK 8 public API and caller ownership of executors.
 
-- [ ] Use the [OWASP DoS guidance](https://cheatsheetseries.owasp.org/cheatsheets/Denial_of_Service_Cheat_Sheet.html) to review coverage and document remaining limits.
 - [ ] Update the slow-client runner to record expected timeout closures, including `idle-drip`, and rerun the external baseline with current limits.
 - [ ] Extend the bounded slow-client baseline to sustained load and representative slow/streaming traffic.
 

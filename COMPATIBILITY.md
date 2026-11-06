@@ -138,6 +138,29 @@ limits, and manage partial work when a streamed request fails. Applications that
 need larger uploads must raise or disable the server ceiling before construction.
 This limit does not restrict response sizes or add a public API beyond JDK 8.
 
+### Denial-of-service review
+
+Reviewed against the [OWASP DoS guidance](https://cheatsheetseries.owasp.org/cheatsheets/Denial_of_Service_Cheat_Sheet.html)
+on 2026-11-06. This is a library-scope review, not a claim of OWASP compliance or
+deployment resilience. The controls and defaults above have direct JUnit coverage;
+the remaining boundaries are:
+
+| Area | Remaining boundary / responsibility |
+| --- | --- |
+| Slow connections | No whole-connection lifetime, keep-alive request-count or total exchange deadline; progress can keep connections occupied. Minimum ingress rates are disabled |
+| Availability under load | Admission caps bound work but do not reserve capacity for ordinary clients. Default inline execution still lets one connection occupy the accept thread |
+| Queued work | No queue-wait deadline; a caller executor may queue indefinitely or block `execute`. Other users of that executor are outside this server's limits |
+| Traffic fairness | No per-client admission quota, request-rate, aggregate bandwidth or connection-arrival limiter |
+| Application work | Filters, authenticators, handlers and stream callbacks have no CPU, storage or execution-time budget; socket closure cannot cancel uncooperative application code |
+| Content processing | File types, multipart/file counts, decoded-size expansion and storage quotas belong to applications; the server's body ceiling is applied before content decoding |
+| Authentication | Authentication is available but provides no credential-attempt throttling or application abuse policy |
+| Deployment/network | Network filtering, host resource budgets, upstream traffic protection, caching and redundancy belong to deployment; transport limits do not prevent network saturation |
+| Evidence | Linux contract tests and bounded loopback probes do not establish sustained-load behavior, realistic-client acceptance, reverse-proxy safety or portability |
+
+Connection lifetime, queue waiting and client fairness therefore remain deployment
+and policy decisions requiring representative traffic evidence. Planned validation
+is in [TODO.md](TODO.md); observed results are in [the conformance report](conformance/REPORT.md).
+
 ## Validation
 
 Latest local results: Linux, Scala Native 0.5.12; Temurin 21.0.10 and 8u482.

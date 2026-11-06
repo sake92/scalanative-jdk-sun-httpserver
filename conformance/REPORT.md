@@ -55,5 +55,7 @@ An earlier fixture TERM run hit a Native `PosixThread.park` assertion; investiga
 
 Host-JDK and external suites were not rerun for the timeout, admission or body-size changes.
 
+[OWASP coverage review](../COMPATIBILITY.md#denial-of-service-review): residual worker starvation, unbounded connection/queue lifetimes, application work and deployment-level traffic controls remain explicit limits.
+
 Raw logs, resource samples and tool reports stay untracked in
 `target/conformance-results/` and may be removed during cleanup.
